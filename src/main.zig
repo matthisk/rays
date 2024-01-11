@@ -2,6 +2,7 @@ const std = @import("std");
 const vecs = @import("vec3.zig");
 const rays = @import("ray.zig");
 const colors = @import("color.zig");
+const rand = @import("rand.zig");
 
 const Vec3 = vecs.Vec3;
 const Ray = rays.Ray;
@@ -9,18 +10,9 @@ const Color = colors.Color;
 
 const infinity = std.math.inf(f32);
 const pi = std.math.pi;
-var rnd = std.rand.DefaultPrng.init(0);
 
 fn degrees_to_radians(degrees: f32) f32 {
     return degrees * pi / 180;
-}
-
-fn random_float() f32 {
-    return rnd.random().float(f32);
-}
-
-fn random_between(min: f32, max: f32) f32 {
-    return min + (max - min) * random_float();
 }
 
 pub fn main() !void {
@@ -42,19 +34,6 @@ pub fn main() !void {
     };
 
     try camera.render(world);
-}
-
-pub fn rayColor(world: Hittable, ray: Ray) colors.Color {
-    const opt_hit_record = world.hit(ray, Interval{ .min = 0, .max = std.math.inf(f32) });
-
-    if (opt_hit_record) |hit_record| {
-        return Color.init(hit_record.normal.x + 1, hit_record.normal.y + 1, hit_record.normal.z + 1).multiply(0.5);
-    }
-
-    const unit_direction = vecs.unit_vector(ray.direction);
-    const a = 0.5 * (unit_direction.y + 1.0);
-
-    return Color.init(1.0, 1.0, 1.0).multiply(1.0 - a).plus(Color.init(0.5, 0.7, 1.0).multiply(a));
 }
 
 const HitRecord = struct {
@@ -164,6 +143,7 @@ const Camera = struct {
     aspect_ratio: f32 = 1.0, // Ratio of image width over height
     img_width: u32 = 0, // Rendered image width in pixel count
     samples_per_pixel: u32 = 100, // Count of random samples for each pixel
+    max_depth: u32 = 10, // Maximum number of ray bounces into scene
     img_height: u32 = 0,
     center: Vec3 = Vec3.init(0, 0, 0),
     pixel00_loc: Vec3 = Vec3.init(0, 0, 0),
@@ -182,7 +162,7 @@ const Camera = struct {
 
                 for (1..self.samples_per_pixel + 1) |_| {
                     const ray = self.get_ray(x, y);
-                    color = color.plus(rayColor(world, ray));
+                    color = color.plus(self.ray_color(ray, world, self.max_depth));
                 }
 
                 try self.writeColor(stdout, color, self.samples_per_pixel);
@@ -214,11 +194,17 @@ const Camera = struct {
         self.pixel00_loc = viewport_upper_left.plus(self.pixel_delta_u.plus(self.pixel_delta_v).multiply(0.5));
     }
 
-    fn ray_color(ray: Ray, world: Hittable) Color {
+    fn ray_color(self: *Camera, ray: Ray, world: Hittable, depth: u32) Color {
+        if (depth <= 0)
+            return Color.init(0, 0, 0);
+
         const opt_hit_record = world.hit(ray, Interval{ .min = 0, .max = std.math.inf(f32) });
 
         if (opt_hit_record) |hit_record| {
-            return Color.init(hit_record.normal.x + 1, hit_record.normal.y + 1, hit_record.normal.z + 1).multiply(0.5);
+            const direction = vecs.random_on_hemisphere(hit_record.normal);
+            const color = self.ray_color(Ray{ .origin = hit_record.p, .direction = direction }, world, depth - 1);
+
+            return color.multiply(0.5);
         }
 
         const unit_direction = vecs.unit_vector(ray.direction);
@@ -238,8 +224,8 @@ const Camera = struct {
     }
 
     fn pixel_sample_square(self: *Camera) Vec3 {
-        const px = -0.5 * random_float();
-        const py = -0.5 * random_float();
+        const px = -0.5 * rand.random_float();
+        const py = -0.5 * rand.random_float();
 
         return self.pixel_delta_u.multiply(px).plus(self.pixel_delta_v.multiply(py));
     }
