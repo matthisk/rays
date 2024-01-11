@@ -8,20 +8,32 @@ const Vec3 = vecs.Vec3;
 const Ray = rays.Ray;
 const Color = colors.Color;
 
-const infinity = std.math.inf(f32);
+const infinity = std.math.inf(f64);
 const pi = std.math.pi;
 
-fn degrees_to_radians(degrees: f32) f32 {
+fn degrees_to_radians(degrees: f64) f64 {
     return degrees * pi / 180;
+}
+
+fn linear_to_gamma(linear_component: f64) f64 {
+    return std.math.sqrt(linear_component);
 }
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
 
-    const objects = [2]Hittable{
-        Hittable{ .sphere = Sphere{ .center = Vec3.init(0, 0, -1), .radius = 0.5 } },
-        Hittable{ .sphere = Sphere{ .center = Vec3.init(0, -100.5, -1), .radius = 100 } },
+    const material_ground = Material{ .lambertian = Lambertian{ .albedo = Color.init(0.8, 0.8, 0.0) } };
+    const material_center = Material{ .dielectric = Dielectric{ .index_of_refraction = 1.5 } };
+    const material_left = Material{ .metal = Metal.init(Color.init(0.8, 0.8, 0.8), 0.3) };
+    const material_right = Material{ .metal = Metal.init(Color.init(0.8, 0.6, 0.2), 1.0) };
+
+    const objects = [5]Hittable{
+        Hittable{ .sphere = Sphere{ .center = Vec3.init(0, -100.5, -1), .radius = 100, .mat = material_ground } },
+        Hittable{ .sphere = Sphere{ .center = Vec3.init(0, 0, -1), .radius = 0.5, .mat = material_center } },
+        Hittable{ .sphere = Sphere{ .center = Vec3.init(0, 0, -1), .radius = -0.4, .mat = material_center } },
+        Hittable{ .sphere = Sphere{ .center = Vec3.init(-1.0, 0, -1), .radius = 0.5, .mat = material_left } },
+        Hittable{ .sphere = Sphere{ .center = Vec3.init(1.0, 0, -1), .radius = 0.5, .mat = material_right } },
     };
     const world = Hittable{ .list = HittableList{ .objects = objects[0..] } };
 
@@ -29,8 +41,14 @@ pub fn main() !void {
     defer allocator.destroy(camera);
 
     camera.* = Camera{
+        .samples_per_pixel = 100,
+        .max_depth = 50,
         .aspect_ratio = 16.0 / 9.0,
-        .img_width = 400,
+        .img_width = 1080,
+        .vfov = 20,
+        .lookfrom = Vec3.init(-2, 2, 1),
+        .lookat = Vec3.init(0, 0, -1),
+        .vup = Vec3.init(0, 1, 0),
     };
 
     try camera.render(world);
@@ -39,8 +57,9 @@ pub fn main() !void {
 const HitRecord = struct {
     p: Vec3 = Vec3.init(0, 0, 0),
     normal: Vec3 = Vec3.init(0, 0, 0),
-    t: f32 = 0,
+    t: f64 = 0,
     front_face: bool = false,
+    mat: Material = undefined,
 
     // Sets the hit record normal vector.
     // NOTE: the parameter `outward_normal` is assumed to have unit length.
@@ -63,7 +82,8 @@ const Hittable = union(enum) {
 
 const Sphere = struct {
     center: Vec3,
-    radius: f32,
+    radius: f64,
+    mat: Material,
 
     pub fn hit(self: Sphere, ray: Ray, ray_t: Interval) ?HitRecord {
         const oc = ray.origin.minus(self.center);
@@ -86,6 +106,7 @@ const Sphere = struct {
         var hit_record = HitRecord{};
         hit_record.t = root;
         hit_record.p = ray.at(hit_record.t);
+        hit_record.mat = self.mat;
         const outward_normal = hit_record.p.minus(self.center).divide(self.radius);
         hit_record.setFaceNormal(ray, outward_normal);
 
@@ -113,26 +134,26 @@ const HittableList = struct {
 };
 
 const Interval = struct {
-    min: f32 = std.math.inf(f32),
-    max: f32 = -std.math.inf(f32),
+    min: f64 = std.math.inf(f64),
+    max: f64 = -std.math.inf(f64),
 
     pub fn empty() Interval {
-        return Interval{ .min = std.math.inf(f32), .max = -std.math.inf(f32) };
+        return Interval{ .min = std.math.inf(f64), .max = -std.math.inf(f64) };
     }
 
     pub fn universe() Interval {
-        return Interval{ .min = -std.math.inf(f32), .max = std.math.inf(f32) };
+        return Interval{ .min = -std.math.inf(f64), .max = std.math.inf(f64) };
     }
 
-    pub fn contains(self: Interval, x: f32) bool {
+    pub fn contains(self: Interval, x: f64) bool {
         return self.min <= x and x <= self.max;
     }
 
-    pub fn surrounds(self: Interval, x: f32) bool {
+    pub fn surrounds(self: Interval, x: f64) bool {
         return self.min < x and x < self.max;
     }
 
-    pub fn clamp(self: Interval, x: f32) f32 {
+    pub fn clamp(self: Interval, x: f64) f64 {
         if (x < self.min) return self.min;
         if (x > self.max) return self.max;
         return x;
@@ -140,15 +161,24 @@ const Interval = struct {
 };
 
 const Camera = struct {
-    aspect_ratio: f32 = 1.0, // Ratio of image width over height
+    aspect_ratio: f64 = 1.0, // Ratio of image width over height
     img_width: u32 = 0, // Rendered image width in pixel count
     samples_per_pixel: u32 = 100, // Count of random samples for each pixel
-    max_depth: u32 = 10, // Maximum number of ray bounces into scene
+    max_depth: u32 = 100, // Maximum number of ray bounces into scene
+    vfov: f64 = 90, // Vertical view angle (field of view).
     img_height: u32 = 0,
     center: Vec3 = Vec3.init(0, 0, 0),
     pixel00_loc: Vec3 = Vec3.init(0, 0, 0),
     pixel_delta_u: Vec3 = Vec3.init(0, 0, 0),
     pixel_delta_v: Vec3 = Vec3.init(0, 0, 0),
+
+    lookfrom: Vec3 = Vec3.init(0, 0, -1), // Point camera is looking from
+    lookat: Vec3 = Vec3.init(0, 0, 0), // Point camera is looking at
+    vup: Vec3 = Vec3.init(0, 1, 0), // Camera-relative "up" direction
+
+    u: Vec3 = undefined,
+    v: Vec3 = undefined,
+    w: Vec3 = undefined,
 
     pub fn render(self: *Camera, world: Hittable) std.fs.File.Writer.Error!void {
         self.initialize();
@@ -171,26 +201,34 @@ const Camera = struct {
     }
 
     fn initialize(self: *Camera) void {
-        const w: f32 = @floatFromInt(self.img_width);
+        const w: f64 = @floatFromInt(self.img_width);
         self.img_height = @intFromFloat(w / self.aspect_ratio);
 
+        self.center = self.lookfrom;
+
         // Camera
-        const focal_length = 1.0;
-        const viewport_height = 2.0;
-        const viewport_aspect_ratio = @as(f32, @floatFromInt(self.img_width)) / @as(f32, @floatFromInt(self.img_height));
+        const focal_length = self.lookfrom.minus(self.lookat).length();
+        const theta = degrees_to_radians(self.vfov);
+        const h = std.math.tan(theta / 2);
+        const viewport_height = 2 * h * focal_length;
+        const viewport_aspect_ratio = @as(f64, @floatFromInt(self.img_width)) / @as(f64, @floatFromInt(self.img_height));
         const viewport_width = viewport_height * viewport_aspect_ratio;
-        self.center = Vec3.init(0, 0, 0);
+
+        // Calculate the u,v,w unit basis vectors for the camera coordinate frame.
+        self.w = vecs.unit_vector(self.lookfrom.minus(self.lookat));
+        self.u = vecs.unit_vector(self.vup.cross(self.w));
+        self.v = self.w.cross(self.u);
 
         // Calculate the vectors across the horizontal and down the vertical viewport edges.
-        const viewport_u = Vec3.init(viewport_width, 0, 0);
-        const viewport_v = Vec3.init(0, -viewport_height, 0);
+        const viewport_u = self.u.multiply(viewport_width);
+        const viewport_v = self.v.multiply(-viewport_height);
 
         // Calculate the horizontal and vertical delta vectors from pixel to pixel.
         self.pixel_delta_u = viewport_u.divide(@floatFromInt(self.img_width));
         self.pixel_delta_v = viewport_v.divide(@floatFromInt(self.img_height));
 
         // Calculate the location of the upper left pixel.
-        const viewport_upper_left = self.center.minus(Vec3.init(0, 0, focal_length)).minus(viewport_u.divide(2)).minus(viewport_v.divide(2));
+        const viewport_upper_left = self.center.minus(self.w.multiply(focal_length)).minus(viewport_u.divide(2)).minus(viewport_v.divide(2));
         self.pixel00_loc = viewport_upper_left.plus(self.pixel_delta_u.plus(self.pixel_delta_v).multiply(0.5));
     }
 
@@ -198,13 +236,17 @@ const Camera = struct {
         if (depth <= 0)
             return Color.init(0, 0, 0);
 
-        const opt_hit_record = world.hit(ray, Interval{ .min = 0, .max = std.math.inf(f32) });
+        const opt_hit_record = world.hit(ray, Interval{ .min = 0.001, .max = std.math.inf(f64) });
 
         if (opt_hit_record) |hit_record| {
-            const direction = vecs.random_on_hemisphere(hit_record.normal);
-            const color = self.ray_color(Ray{ .origin = hit_record.p, .direction = direction }, world, depth - 1);
+            var attenuation: Color = undefined;
+            var scattered: Ray = undefined;
 
-            return color.multiply(0.5);
+            if (hit_record.mat.scatter(ray, hit_record, &attenuation, &scattered)) {
+                return attenuation.multiplyByVec3(self.ray_color(scattered, world, depth - 1));
+            }
+
+            return Color.init(0, 0, 0);
         }
 
         const unit_direction = vecs.unit_vector(ray.direction);
@@ -237,10 +279,14 @@ const Camera = struct {
         var g = color.y;
         var b = color.z;
 
-        const scale = 1.0 / @as(f32, @floatFromInt(samples_per_pixel));
+        const scale = 1.0 / @as(f64, @floatFromInt(samples_per_pixel));
         r *= scale;
         g *= scale;
         b *= scale;
+
+        r = linear_to_gamma(r);
+        g = linear_to_gamma(g);
+        b = linear_to_gamma(b);
 
         const intensity = Interval{ .min = 0.0, .max = 0.999 };
         try writer.print("{d} {d} {d}\n", .{
@@ -248,5 +294,88 @@ const Camera = struct {
             @floor(intensity.clamp(g) * 255.999),
             @floor(intensity.clamp(b) * 255.999),
         });
+    }
+};
+
+const Material = union(enum) {
+    lambertian: Lambertian,
+    metal: Metal,
+    dielectric: Dielectric,
+
+    pub fn scatter(self: Material, ray_in: Ray, record: HitRecord, attenuation: *Color, scattered: *Ray) bool {
+        return switch (self) {
+            inline else => |case| case.scatter(ray_in, record, attenuation, scattered),
+        };
+    }
+};
+
+const Lambertian = struct {
+    albedo: Color,
+
+    pub fn scatter(self: Lambertian, _: Ray, record: HitRecord, attenuation: *Color, scattered: *Ray) bool {
+        var scatter_direction = record.normal.plus(vecs.random_unit_vector());
+
+        if (scatter_direction.near_zero()) {
+            scatter_direction = record.normal;
+        }
+
+        scattered.* = Ray{ .origin = record.p, .direction = scatter_direction };
+        attenuation.* = self.albedo;
+
+        return true;
+    }
+};
+
+const Metal = struct {
+    albedo: Color,
+    fuzz: f64,
+
+    pub fn init(albedo: Color, f: f64) Metal {
+        return Metal{
+            .albedo = albedo,
+            .fuzz = if (f < 1) f else 1,
+        };
+    }
+
+    pub fn scatter(self: Metal, r_in: Ray, record: HitRecord, attenuation: *Color, scattered: *Ray) bool {
+        const reflected = vecs.reflect(vecs.unit_vector(r_in.direction), record.normal);
+
+        scattered.* = Ray{ .origin = record.p, .direction = reflected.plus(vecs.random_unit_vector().multiply(self.fuzz)) };
+        attenuation.* = self.albedo;
+
+        return true;
+    }
+};
+
+const Dielectric = struct {
+    index_of_refraction: f64,
+
+    pub fn scatter(self: Dielectric, r_in: Ray, record: HitRecord, attenuation: *Color, scattered: *Ray) bool {
+        attenuation.* = Color.init(1.0, 1.0, 1.0);
+        const refraction_ratio = if (record.front_face) (1.0 / self.index_of_refraction) else self.index_of_refraction;
+
+        const unit_direction = vecs.unit_vector(r_in.direction);
+        const cos_theta = @min(unit_direction.multiply(-1).dot(record.normal), 1.0);
+        const sin_theta = std.math.sqrt(1.0 - cos_theta * cos_theta);
+
+        const cannot_refract = refraction_ratio * sin_theta > 1.0;
+        var direction: Vec3 = undefined;
+
+        if (cannot_refract or reflectance(cos_theta, refraction_ratio) > rand.random_float()) {
+            direction = vecs.reflect(unit_direction, record.normal);
+        } else {
+            direction = vecs.refract(unit_direction, record.normal, refraction_ratio);
+        }
+
+        scattered.* = Ray{ .origin = record.p, .direction = direction };
+
+        return true;
+    }
+
+    fn reflectance(cosine: f64, ref_idx: f64) f64 {
+        var r0 = (1 - ref_idx) / (1 + ref_idx);
+        r0 = r0 * r0;
+
+        return r0 + (1 - r0) * std.math.pow(f64, (1 - cosine), 5);
     }
 };

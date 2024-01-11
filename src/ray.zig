@@ -8,7 +8,7 @@ pub const Ray = struct {
         return Ray{ .origin = origin, .direction = direction };
     }
 
-    pub fn at(self: Ray, t: f32) vecs.Vec3 {
+    pub fn at(self: Ray, t: f64) vecs.Vec3 {
         return self.origin.plus(self.direction.multiply(t));
     }
 };
