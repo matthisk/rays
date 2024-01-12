@@ -1,8 +1,12 @@
 const std = @import("std");
+const c = @cImport({
+    @cInclude("SDL2/SDL.h");
+});
 const vecs = @import("vec3.zig");
 const rays = @import("ray.zig");
 const colors = @import("color.zig");
 const rand = @import("rand.zig");
+const window = @import("window.zig");
 
 const degreesToRadians = @import("math.zig").degreesToRadians;
 const linearToGamma = @import("math.zig").linearToGamma;
@@ -13,10 +17,14 @@ const Color = colors.Color;
 
 const ObjectList = std.ArrayList(Hittable);
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const allocator = gpa.allocator();
+var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+const allocator = gpa.allocator();
 
+pub fn main() !void {
+    try window.initialize(renderFn);
+}
+
+pub fn renderFn(sdl_window: *c.SDL_Window, surface: *c.SDL_Surface) !void {
     // Allocate heap.
     var objects = ObjectList.init(allocator);
     defer objects.deinit();
@@ -34,8 +42,8 @@ pub fn main() !void {
         .img_width = 200,
 
         // Render config.
-        .samples_per_pixel = 100,
-        .max_depth = 50,
+        .samples_per_pixel = 10,
+        .max_depth = 5,
 
         // View.
         .vfov = 20,
@@ -46,6 +54,9 @@ pub fn main() !void {
         // Focus.
         .defocus_angle = 0.6,
         .focus_dist = 10.0,
+
+        // Writer.
+        .writer = ImageWriter{ .sdl = SdlImageWriter{ .window = sdl_window, .surface = surface } },
     };
 
     try camera.render(world);
@@ -119,8 +130,8 @@ const Sphere = struct {
         const oc = ray.origin.minus(self.center);
         const a = ray.direction.lengthSquared();
         const half_b = oc.dot(ray.direction);
-        const c = oc.lengthSquared() - self.radius * self.radius;
-        const discriminant = half_b * half_b - a * c;
+        const cc = oc.lengthSquared() - self.radius * self.radius;
+        const discriminant = half_b * half_b - a * cc;
         if (discriminant < 0) return null;
         const sqrtd = std.math.sqrt(discriminant);
 
@@ -215,11 +226,10 @@ const Camera = struct {
     v: Vec3 = undefined,
     w: Vec3 = undefined,
 
-    pub fn render(self: *Camera, world: Hittable) std.fs.File.Writer.Error!void {
-        self.initialize();
+    writer: ImageWriter = undefined,
 
-        var stdout = std.io.getStdOut().writer();
-        try stdout.print("P3\n{d} {d}\n255\n", .{ self.img_width, self.img_height });
+    pub fn render(self: *Camera, world: Hittable) std.fs.File.Writer.Error!void {
+        try self.initialize();
 
         for (1..self.img_height + 1) |y| {
             for (1..self.img_width + 1) |x| {
@@ -230,12 +240,12 @@ const Camera = struct {
                     color = color.plus(self.rayColor(ray, world, self.max_depth));
                 }
 
-                try self.writeColor(stdout, color, self.samples_per_pixel);
+                try self.writeColor(x - 1, y - 1, color, self.samples_per_pixel);
             }
         }
     }
 
-    fn initialize(self: *Camera) void {
+    fn initialize(self: *Camera) !void {
         self.img_height = @intFromFloat(@as(f64, @floatFromInt(self.img_width)) / self.aspect_ratio);
 
         self.center = self.lookfrom;
@@ -317,9 +327,7 @@ const Camera = struct {
         return self.center.plus(self.defocus_disk_u.multiply(p.x)).plus(self.defocus_disk_v.multiply(p.y));
     }
 
-    fn writeColor(self: *Camera, writer: std.fs.File.Writer, color: Color, samples_per_pixel: u32) std.fs.File.Writer.Error!void {
-        _ = self;
-
+    fn writeColor(self: *Camera, x: u64, y: u64, color: Color, samples_per_pixel: u32) std.fs.File.Writer.Error!void {
         var r = color.x;
         var g = color.y;
         var b = color.z;
@@ -334,11 +342,60 @@ const Camera = struct {
         b = linearToGamma(b);
 
         const intensity = Interval{ .min = 0.0, .max = 0.999 };
-        try writer.print("{d} {d} {d}\n", .{
-            @floor(intensity.clamp(r) * 255.999),
-            @floor(intensity.clamp(g) * 255.999),
-            @floor(intensity.clamp(b) * 255.999),
+
+        try self.writer.writeColor(x, y, Color.init(intensity.clamp(r), intensity.clamp(g), intensity.clamp(b)));
+    }
+};
+
+const ImageWriter = union(enum) {
+    stdout: StdoutImageWriter,
+    sdl: SdlImageWriter,
+
+    pub fn writeColor(self: ImageWriter, x: u64, y: u64, color: Color) !void {
+        switch (self) {
+            inline else => |case| try case.writeColor(x, y, color),
+        }
+    }
+};
+
+const StdoutImageWriter = struct {
+    stdout: std.fs.File.Writer,
+
+    pub fn init(img_width: u64, img_height: u64) !ImageWriter {
+        var stdout = std.io.getStdOut().writer();
+        try stdout.print("P3\n{d} {d}\n255\n", .{ img_width, img_height });
+
+        return ImageWriter{ .stdout = StdoutImageWriter{
+            .stdout = stdout,
+        } };
+    }
+
+    pub fn writeColor(self: StdoutImageWriter, _: u64, _: u64, color: Color) !void {
+        try self.stdout.print("{d} {d} {d}\n", .{
+            @floor(color.x * 255.999),
+            @floor(color.y * 255.999),
+            @floor(color.z * 255.999),
         });
+    }
+};
+
+const SdlImageWriter = struct {
+    window: *c.SDL_Window,
+    surface: *c.SDL_Surface,
+
+    pub fn writeColor(self: SdlImageWriter, x: u64, y: u64, color: Color) !void {
+        self.setPixel(@intCast(x), @intCast(y), colors.toBgra(color));
+    }
+
+    fn setPixel(self: SdlImageWriter, x: c_int, y: c_int, pixel: u32) void {
+        const target_pixel = @intFromPtr(self.surface.pixels) +
+            @as(usize, @intCast(y)) * @as(usize, @intCast(self.surface.pitch)) +
+            @as(usize, @intCast(x)) * 4;
+        @as(*u32, @ptrFromInt(target_pixel)).* = pixel;
+
+        if (c.SDL_UpdateWindowSurface(self.window) != 0) {
+            c.SDL_Log("Error updating window surface: %s", c.SDL_GetError());
+        }
     }
 };
 
