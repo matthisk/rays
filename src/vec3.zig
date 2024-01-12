@@ -98,6 +98,15 @@ pub fn random_in_unit_sphere() Vec3 {
     }
 }
 
+pub fn random_in_unit_disk() Vec3 {
+    while (true) {
+        const p = Vec3.init(rand.random_between(-1, 1), rand.random_between(-1, 1), 0);
+        if (p.length_squared() < 1) {
+            return p;
+        }
+    }
+}
+
 pub fn random() Vec3 {
     return Vec3.init(rand.random_float(), rand.random_float(), rand.random_float());
 }
