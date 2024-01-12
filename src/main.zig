@@ -20,8 +20,11 @@ const ObjectList = std.ArrayList(Hittable);
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 const allocator = gpa.allocator();
 
+const image_width: u32 = 400;
+const aspect_ratio = 16.0 / 9.0;
+
 pub fn main() !void {
-    try window.initialize(renderFn);
+    try window.initialize(image_width, @intFromFloat(@as(f32, @floatFromInt(image_width)) / aspect_ratio), allocator, renderFn);
 }
 
 pub fn renderFn(sdl_window: *c.SDL_Window, surface: *c.SDL_Surface) !void {
@@ -38,12 +41,12 @@ pub fn renderFn(sdl_window: *c.SDL_Window, surface: *c.SDL_Surface) !void {
     // Initialize camera and render frame.
     camera.* = Camera{
         // Output.
-        .aspect_ratio = 16.0 / 9.0,
-        .img_width = 200,
+        .aspect_ratio = aspect_ratio,
+        .img_width = image_width,
 
         // Render config.
-        .samples_per_pixel = 10,
-        .max_depth = 5,
+        .samples_per_pixel = 1,
+        .max_depth = 16,
 
         // View.
         .vfov = 20,
@@ -388,13 +391,20 @@ const SdlImageWriter = struct {
     }
 
     fn setPixel(self: SdlImageWriter, x: c_int, y: c_int, pixel: u32) void {
+        if (c.SDL_LockSurface(self.surface) != 0) {
+            return;
+        }
+        defer c.SDL_UnlockSurface(self.surface);
+
         const target_pixel = @intFromPtr(self.surface.pixels) +
             @as(usize, @intCast(y)) * @as(usize, @intCast(self.surface.pitch)) +
             @as(usize, @intCast(x)) * 4;
         @as(*u32, @ptrFromInt(target_pixel)).* = pixel;
 
-        if (c.SDL_UpdateWindowSurface(self.window) != 0) {
-            c.SDL_Log("Error updating window surface: %s", c.SDL_GetError());
+        if (x == 0) {
+            if (c.SDL_UpdateWindowSurface(self.window) != 0) {
+                c.SDL_Log("Error updating window surface: %s", c.SDL_GetError());
+            }
         }
     }
 };

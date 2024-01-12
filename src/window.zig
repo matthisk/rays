@@ -7,17 +7,14 @@ const assert = @import("std").debug.assert;
 
 const SDL_WINDOWPOS_UNDEFINED = @as(c_int, @bitCast(c.SDL_WINDOWPOS_UNDEFINED_MASK));
 
-var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-const allocator = gpa.allocator();
-
-pub fn initialize(renderFn: anytype) !void {
+pub fn initialize(w: i32, h: i32, allocator: std.mem.Allocator, renderFn: anytype) !void {
     if (c.SDL_Init(c.SDL_INIT_VIDEO) != 0) {
         c.SDL_Log("Unable to initialize SDL: %s", c.SDL_GetError());
         return error.SDLInitializationFailed;
     }
     defer c.SDL_Quit();
 
-    const window = c.SDL_CreateWindow("weekend raytracer", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 200, @intFromFloat(200.0 / (16.0 / 9.0)), c.SDL_WINDOW_OPENGL) orelse {
+    const window = c.SDL_CreateWindow("weekend raytracer", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, w, h, c.SDL_WINDOW_OPENGL) orelse {
         c.SDL_Log("Unable to create window: %s", c.SDL_GetError());
         return error.SDLInitializationFailed;
     };
@@ -32,15 +29,9 @@ pub fn initialize(renderFn: anytype) !void {
         return error.SDLUpdateWindowFailed;
     }
 
-    {
-        // _ = c.SDL_LockSurface(surface);
+    const thread = try std.Thread.spawn(.{ .allocator = allocator }, renderFn, .{ window, surface });
 
-        _ = try std.Thread.spawn(.{ .allocator = allocator }, renderFn, .{window, surface});
-
-        // c.SDL_UnlockSurface(surface);
-    }
-
-    renderBlank(surface);
+    renderBlank(w, h, surface);
 
     if (c.SDL_UpdateWindowSurface(window) != 0) {
         c.SDL_Log("Error updating window surface: %s", c.SDL_GetError());
@@ -61,12 +52,18 @@ pub fn initialize(renderFn: anytype) !void {
 
         c.SDL_Delay(16);
     }
+
+    // TODO: We quit the program, so we can terminate this thread.
+    thread.detach();
+
+    c.SDL_DestroyWindow(window);
+    c.SDL_Quit();
 }
 
-fn renderBlank(surface: *c.SDL_Surface) void {
+fn renderBlank(w: i32, h: i32, surface: *c.SDL_Surface) void {
     const color = Color.init(0.5, 1, 1);
-    for (0..200) |x| {
-        for (0..112) |y| {
+    for (0..@intCast(w)) |x| {
+        for (0..@intCast(h)) |y| {
             setPixel(surface, @intCast(x), @intCast(y), toBgra(@as(u32, @intFromFloat(255.99 * color.x)), @as(u32, @intFromFloat(255.99 * color.y)), @as(u32, @intFromFloat(255.99 * color.z))));
         }
     }
