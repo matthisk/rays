@@ -47,14 +47,14 @@ pub const Vec3 = struct {
     }
 
     pub fn length(self: Vec3) f64 {
-        return std.math.sqrt(self.length_squared());
+        return std.math.sqrt(self.lengthSquared());
     }
 
-    pub fn length_squared(self: Vec3) f64 {
+    pub fn lengthSquared(self: Vec3) f64 {
         return self.x * self.x + self.y * self.y + self.z * self.z;
     }
 
-    pub fn near_zero(self: Vec3) bool {
+    pub fn nearZero(self: Vec3) bool {
         const s = 1e-8;
         return (std.math.fabs(self.x) < s) and (std.math.fabs(self.y) < s) and (std.math.fabs(self.z) < s);
     }
@@ -67,21 +67,21 @@ pub fn reflect(v: Vec3, n: Vec3) Vec3 {
 pub fn refract(uv: Vec3, n: Vec3, etai_overetat: f64) Vec3 {
     const cos_theta = @min(uv.multiply(-1).dot(n), 1.0);
     const r_out_perp = uv.plus(n.multiply(cos_theta)).multiply(etai_overetat);
-    const r_out_parallel = n.multiply(-std.math.sqrt(std.math.fabs(1.0 - r_out_perp.length_squared())));
+    const r_out_parallel = n.multiply(-std.math.sqrt(std.math.fabs(1.0 - r_out_perp.lengthSquared())));
 
     return r_out_perp.plus(r_out_parallel);
 }
 
-pub fn unit_vector(v: Vec3) Vec3 {
+pub fn unitVector(v: Vec3) Vec3 {
     return v.divide(v.length());
 }
 
-pub fn random_unit_vector() Vec3 {
-    return unit_vector(random_in_unit_sphere());
+pub fn randomUnitVector() Vec3 {
+    return unitVector(randomInUnitSphere());
 }
 
-pub fn random_on_hemisphere(normal: Vec3) Vec3 {
-    const on_unit_sphere = random_unit_vector();
+pub fn randomOnHemisphere(normal: Vec3) Vec3 {
+    const on_unit_sphere = randomUnitVector();
     if (on_unit_sphere.dot(normal) > 0.0) {
         return on_unit_sphere;
     } else {
@@ -89,28 +89,28 @@ pub fn random_on_hemisphere(normal: Vec3) Vec3 {
     }
 }
 
-pub fn random_in_unit_sphere() Vec3 {
+pub fn randomInUnitSphere() Vec3 {
     while (true) {
-        const p = random_between(-1, 1);
-        if (p.length_squared() < 1) {
+        const p = randomBetween(-1, 1);
+        if (p.lengthSquared() < 1) {
             return p;
         }
     }
 }
 
-pub fn random_in_unit_disk() Vec3 {
+pub fn randomInUnitDisk() Vec3 {
     while (true) {
-        const p = Vec3.init(rand.random_between(-1, 1), rand.random_between(-1, 1), 0);
-        if (p.length_squared() < 1) {
+        const p = Vec3.init(rand.randomBetween(-1, 1), rand.randomBetween(-1, 1), 0);
+        if (p.lengthSquared() < 1) {
             return p;
         }
     }
 }
 
 pub fn random() Vec3 {
-    return Vec3.init(rand.random_float(), rand.random_float(), rand.random_float());
+    return Vec3.init(rand.randomFloat(), rand.randomFloat(), rand.randomFloat());
 }
 
-pub fn random_between(min: f64, max: f64) Vec3 {
-    return Vec3.init(rand.random_between(min, max), rand.random_between(min, max), rand.random_between(min, max));
+pub fn randomBetween(min: f64, max: f64) Vec3 {
+    return Vec3.init(rand.randomBetween(min, max), rand.randomBetween(min, max), rand.randomBetween(min, max));
 }

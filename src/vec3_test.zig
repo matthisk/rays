@@ -1,13 +1,6 @@
 const std = @import("std");
 const vecs = @import("vec3.zig");
 
-test "for loop range" {
-    const t: i32 = 10;
-    for (0..t + 1) |x| {
-        std.debug.print("{d} ", .{x});
-    }
-}
-
 test "empty vec3" {
     const vec = vecs.Vec3.zero();
 

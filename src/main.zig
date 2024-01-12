@@ -4,20 +4,14 @@ const rays = @import("ray.zig");
 const colors = @import("color.zig");
 const rand = @import("rand.zig");
 
+const degreesToRadians = @import("math.zig").degreesToRadians;
+const linearToGamma = @import("math.zig").linearToGamma;
+
 const Vec3 = vecs.Vec3;
 const Ray = rays.Ray;
 const Color = colors.Color;
 
 const infinity = std.math.inf(f64);
-const pi = std.math.pi;
-
-fn degrees_to_radians(degrees: f64) f64 {
-    return degrees * pi / 180;
-}
-
-fn linear_to_gamma(linear_component: f64) f64 {
-    return std.math.sqrt(linear_component);
-}
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -36,8 +30,8 @@ pub fn main() !void {
             const a: f64 = @as(f64, @floatFromInt(k)) - 11;
             const b: f64 = @as(f64, @floatFromInt(l)) - 11;
 
-            const choose_mat = rand.random_float();
-            const center = Vec3.init(a + 0.9 * rand.random_float(), 0.2, b + 0.9 * rand.random_float());
+            const choose_mat = rand.randomFloat();
+            const center = Vec3.init(a + 0.9 * rand.randomFloat(), 0.2, b + 0.9 * rand.randomFloat());
 
             if (center.minus(Vec3.init(4, 0.2, 0)).length() > 0.9) {
                 var sphere_material: Material = undefined;
@@ -45,8 +39,8 @@ pub fn main() !void {
                 if (choose_mat < 0.8) {
                     sphere_material = Material{ .lambertian = Lambertian{ .albedo = vecs.random().multiplyByVec3(vecs.random()) } };
                 } else if (choose_mat < 0.95) {
-                    const fuzz = rand.random_between(0.0, 0.5);
-                    sphere_material = Material{ .metal = Metal{ .albedo = vecs.random().multiplyByVec3(vecs.random_between(0.5, 1)), .fuzz = fuzz } };
+                    const fuzz = rand.randomBetween(0.0, 0.5);
+                    sphere_material = Material{ .metal = Metal{ .albedo = vecs.random().multiplyByVec3(vecs.randomBetween(0.5, 1)), .fuzz = fuzz } };
                 } else {
                     sphere_material = Material{ .dielectric = Dielectric{ .index_of_refraction = 1.5 } };
                 }
@@ -66,7 +60,7 @@ pub fn main() !void {
         .samples_per_pixel = 100,
         .max_depth = 50,
         .aspect_ratio = 16.0 / 9.0,
-        .img_width = 1200,
+        .img_width = 200,
         .vfov = 20,
         .lookfrom = Vec3.init(13, 2, 3),
         .lookat = Vec3.init(0, 0, 0),
@@ -111,9 +105,9 @@ const Sphere = struct {
 
     pub fn hit(self: Sphere, ray: Ray, ray_t: Interval) ?HitRecord {
         const oc = ray.origin.minus(self.center);
-        const a = ray.direction.length_squared();
+        const a = ray.direction.lengthSquared();
         const half_b = oc.dot(ray.direction);
-        const c = oc.length_squared() - self.radius * self.radius;
+        const c = oc.lengthSquared() - self.radius * self.radius;
         const discriminant = half_b * half_b - a * c;
         if (discriminant < 0) return null;
         const sqrtd = std.math.sqrt(discriminant);
@@ -220,8 +214,8 @@ const Camera = struct {
                 var color = Color.init(0, 0, 0);
 
                 for (1..self.samples_per_pixel + 1) |_| {
-                    const ray = self.get_ray(x, y);
-                    color = color.plus(self.ray_color(ray, world, self.max_depth));
+                    const ray = self.getRay(x, y);
+                    color = color.plus(self.rayColor(ray, world, self.max_depth));
                 }
 
                 try self.writeColor(stdout, color, self.samples_per_pixel);
@@ -235,15 +229,15 @@ const Camera = struct {
         self.center = self.lookfrom;
 
         // Camera
-        const theta = degrees_to_radians(self.vfov);
+        const theta = degreesToRadians(self.vfov);
         const h = std.math.tan(theta / 2);
         const viewport_height = 2 * h * self.focus_dist;
         const viewport_aspect_ratio = @as(f64, @floatFromInt(self.img_width)) / @as(f64, @floatFromInt(self.img_height));
         const viewport_width = viewport_height * viewport_aspect_ratio;
 
         // Calculate the u,v,w unit basis vectors for the camera coordinate frame.
-        self.w = vecs.unit_vector(self.lookfrom.minus(self.lookat));
-        self.u = vecs.unit_vector(self.vup.cross(self.w));
+        self.w = vecs.unitVector(self.lookfrom.minus(self.lookat));
+        self.u = vecs.unitVector(self.vup.cross(self.w));
         self.v = self.w.cross(self.u);
 
         // Calculate the vectors across the horizontal and down the vertical viewport edges.
@@ -259,12 +253,12 @@ const Camera = struct {
         self.pixel00_loc = viewport_upper_left.plus(self.pixel_delta_u.plus(self.pixel_delta_v).multiply(0.5));
 
         // Calculate the camera defocus disk basis vectors.
-        const defocus_radius = self.focus_dist * std.math.tan(degrees_to_radians(self.defocus_angle / 2));
+        const defocus_radius = self.focus_dist * std.math.tan(degreesToRadians(self.defocus_angle / 2));
         self.defocus_disk_u = self.u.multiply(defocus_radius);
         self.defocus_disk_v = self.v.multiply(defocus_radius);
     }
 
-    fn ray_color(self: *Camera, ray: Ray, world: Hittable, depth: u32) Color {
+    fn rayColor(self: *Camera, ray: Ray, world: Hittable, depth: u32) Color {
         if (depth <= 0)
             return Color.init(0, 0, 0);
 
@@ -275,39 +269,39 @@ const Camera = struct {
             var scattered: Ray = undefined;
 
             if (hit_record.mat.scatter(ray, hit_record, &attenuation, &scattered)) {
-                return attenuation.multiplyByVec3(self.ray_color(scattered, world, depth - 1));
+                return attenuation.multiplyByVec3(self.rayColor(scattered, world, depth - 1));
             }
 
             return Color.init(0, 0, 0);
         }
 
-        const unit_direction = vecs.unit_vector(ray.direction);
+        const unit_direction = vecs.unitVector(ray.direction);
         const a = 0.5 * (unit_direction.y + 1.0);
 
         return Color.init(1.0, 1.0, 1.0).multiply(1.0 - a).plus(Color.init(0.5, 0.7, 1.0).multiply(a));
     }
 
-    fn get_ray(self: *Camera, x: u64, y: u64) Ray {
+    fn getRay(self: *Camera, x: u64, y: u64) Ray {
         // Get a randomly-sampled camera ray for the pixel at location x,y, originating from
         // the camera defocus disk.
         const pixel_center = self.pixel00_loc.plus(self.pixel_delta_u.multiply(@floatFromInt(x))).plus(self.pixel_delta_v.multiply(@floatFromInt(y)));
-        const pixel_sample = pixel_center.plus(self.pixel_sample_square());
+        const pixel_sample = pixel_center.plus(self.pixelSampleSquare());
 
-        const ray_origin = if (self.defocus_angle <= 0) self.center else self.defocus_disk_sample();
+        const ray_origin = if (self.defocus_angle <= 0) self.center else self.defocusDiskSample();
         const ray_direction = pixel_sample.minus(ray_origin);
 
         return Ray.init(ray_origin, ray_direction);
     }
 
-    fn pixel_sample_square(self: *Camera) Vec3 {
-        const px = -0.5 * rand.random_float();
-        const py = -0.5 * rand.random_float();
+    fn pixelSampleSquare(self: *Camera) Vec3 {
+        const px = -0.5 * rand.randomFloat();
+        const py = -0.5 * rand.randomFloat();
 
         return self.pixel_delta_u.multiply(px).plus(self.pixel_delta_v.multiply(py));
     }
 
-    fn defocus_disk_sample(self: *Camera) Vec3 {
-        const p = vecs.random_in_unit_disk();
+    fn defocusDiskSample(self: *Camera) Vec3 {
+        const p = vecs.randomInUnitDisk();
         return self.center.plus(self.defocus_disk_u.multiply(p.x)).plus(self.defocus_disk_v.multiply(p.y));
     }
 
@@ -323,9 +317,9 @@ const Camera = struct {
         g *= scale;
         b *= scale;
 
-        r = linear_to_gamma(r);
-        g = linear_to_gamma(g);
-        b = linear_to_gamma(b);
+        r = linearToGamma(r);
+        g = linearToGamma(g);
+        b = linearToGamma(b);
 
         const intensity = Interval{ .min = 0.0, .max = 0.999 };
         try writer.print("{d} {d} {d}\n", .{
@@ -352,9 +346,9 @@ const Lambertian = struct {
     albedo: Color,
 
     pub fn scatter(self: Lambertian, _: Ray, record: HitRecord, attenuation: *Color, scattered: *Ray) bool {
-        var scatter_direction = record.normal.plus(vecs.random_unit_vector());
+        var scatter_direction = record.normal.plus(vecs.randomUnitVector());
 
-        if (scatter_direction.near_zero()) {
+        if (scatter_direction.nearZero()) {
             scatter_direction = record.normal;
         }
 
@@ -377,9 +371,9 @@ const Metal = struct {
     }
 
     pub fn scatter(self: Metal, r_in: Ray, record: HitRecord, attenuation: *Color, scattered: *Ray) bool {
-        const reflected = vecs.reflect(vecs.unit_vector(r_in.direction), record.normal);
+        const reflected = vecs.reflect(vecs.unitVector(r_in.direction), record.normal);
 
-        scattered.* = Ray{ .origin = record.p, .direction = reflected.plus(vecs.random_unit_vector().multiply(self.fuzz)) };
+        scattered.* = Ray{ .origin = record.p, .direction = reflected.plus(vecs.randomUnitVector().multiply(self.fuzz)) };
         attenuation.* = self.albedo;
 
         return true;
@@ -393,14 +387,14 @@ const Dielectric = struct {
         attenuation.* = Color.init(1.0, 1.0, 1.0);
         const refraction_ratio = if (record.front_face) (1.0 / self.index_of_refraction) else self.index_of_refraction;
 
-        const unit_direction = vecs.unit_vector(r_in.direction);
+        const unit_direction = vecs.unitVector(r_in.direction);
         const cos_theta = @min(unit_direction.multiply(-1).dot(record.normal), 1.0);
         const sin_theta = std.math.sqrt(1.0 - cos_theta * cos_theta);
 
         const cannot_refract = refraction_ratio * sin_theta > 1.0;
         var direction: Vec3 = undefined;
 
-        if (cannot_refract or reflectance(cos_theta, refraction_ratio) > rand.random_float()) {
+        if (cannot_refract or reflectance(cos_theta, refraction_ratio) > rand.randomFloat()) {
             direction = vecs.reflect(unit_direction, record.normal);
         } else {
             direction = vecs.refract(unit_direction, record.normal, refraction_ratio);
