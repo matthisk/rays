@@ -11,19 +11,50 @@ const Vec3 = vecs.Vec3;
 const Ray = rays.Ray;
 const Color = colors.Color;
 
-const infinity = std.math.inf(f64);
+const ObjectList = std.ArrayList(Hittable);
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
 
-    const objects = try allocator.alloc(Hittable, 500);
-    defer allocator.free(objects);
+    // Allocate heap.
+    var objects = ObjectList.init(allocator);
+    defer objects.deinit();
 
+    const camera = try allocator.create(Camera);
+    defer allocator.destroy(camera);
+
+    // Generate a random world.
+    const world = try generateWorld(&objects);
+
+    // Initialize camera and render frame.
+    camera.* = Camera{
+        // Output.
+        .aspect_ratio = 16.0 / 9.0,
+        .img_width = 200,
+
+        // Render config.
+        .samples_per_pixel = 100,
+        .max_depth = 50,
+
+        // View.
+        .vfov = 20,
+        .lookfrom = Vec3.init(13, 2, 3),
+        .lookat = Vec3.init(0, 0, 0),
+        .vup = Vec3.init(0, 1, 0),
+
+        // Focus.
+        .defocus_angle = 0.6,
+        .focus_dist = 10.0,
+    };
+
+    try camera.render(world);
+}
+
+fn generateWorld(objects: *ObjectList) !Hittable {
     const material_ground = Material{ .lambertian = Lambertian{ .albedo = Color.init(0.5, 0.5, 0.5) } };
-    objects[0] = Hittable{ .sphere = Sphere{ .center = Vec3.init(0, -1000, 0), .radius = 1000, .mat = material_ground } };
 
-    var i: usize = 1;
+    try objects.append(Hittable{ .sphere = Sphere{ .center = Vec3.init(0, -1000, 0), .radius = 1000, .mat = material_ground } });
 
     for (0..22) |k| {
         for (0..22) |l| {
@@ -45,31 +76,12 @@ pub fn main() !void {
                     sphere_material = Material{ .dielectric = Dielectric{ .index_of_refraction = 1.5 } };
                 }
 
-                objects[i] = Hittable{ .sphere = Sphere{ .center = center, .radius = 0.2, .mat = sphere_material } };
-                i += 1;
+                try objects.append(Hittable{ .sphere = Sphere{ .center = center, .radius = 0.2, .mat = sphere_material } });
             }
         }
     }
 
-    const world = Hittable{ .list = HittableList{ .objects = objects[0..] } };
-
-    const camera = try allocator.create(Camera);
-    defer allocator.destroy(camera);
-
-    camera.* = Camera{
-        .samples_per_pixel = 100,
-        .max_depth = 50,
-        .aspect_ratio = 16.0 / 9.0,
-        .img_width = 200,
-        .vfov = 20,
-        .lookfrom = Vec3.init(13, 2, 3),
-        .lookat = Vec3.init(0, 0, 0),
-        .vup = Vec3.init(0, 1, 0),
-        .defocus_angle = 0.6,
-        .focus_dist = 10.0,
-    };
-
-    try camera.render(world);
+    return Hittable{ .list = HittableList{ .objects = objects.items } };
 }
 
 const HitRecord = struct {
