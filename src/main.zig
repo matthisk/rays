@@ -24,6 +24,8 @@ const image_width: u32 = 400;
 const image_height: u32 = 225;
 const aspect_ratio = 16.0 / 9.0;
 
+const number_of_threads = 16;
+
 pub fn main() !void {
     const image_buffer = try allocator.alloc([]Color, image_width);
 
@@ -31,23 +33,45 @@ pub fn main() !void {
         image_buffer[x] = try allocator.alloc(Color, image_height);
     }
 
-    const thread = try std.Thread.spawn(.{ .allocator = allocator }, renderFn, .{image_buffer});
-
-    try window.initialize(image_width, image_height, image_buffer);
-
-    thread.join();
-}
-
-pub fn renderFn(image_buffer: [][]Color) !void {
     // Allocate heap.
     var objects = ObjectList.init(allocator);
     defer objects.deinit();
 
-    const camera = try allocator.create(Camera);
-    defer allocator.destroy(camera);
-
     // Generate a random world.
     const world = try generateWorld(&objects);
+
+    var threads = std.ArrayList(std.Thread).init(allocator);
+
+    for (0..number_of_threads) |thread_idx| {
+        const task = Task{
+            .thread_idx = @intCast(thread_idx),
+            .chunk_size = (image_width * image_height) / number_of_threads,
+            .image_buffer = image_buffer,
+            .world = world,
+        };
+
+        const thread = try std.Thread.spawn(.{ .allocator = allocator }, renderFn, .{task});
+
+        try threads.append(thread);
+    }
+
+    try window.initialize(image_width, image_height, image_buffer);
+
+    for (threads.items) |thread| {
+        thread.join();
+    }
+}
+
+const Task = struct {
+    thread_idx: u32,
+    chunk_size: u32,
+    image_buffer: [][]Color,
+    world: Hittable,
+};
+
+pub fn renderFn(context: Task) !void {
+    const camera = try allocator.create(Camera);
+    defer allocator.destroy(camera);
 
     // Initialize camera and render frame.
     camera.* = Camera{
@@ -56,7 +80,7 @@ pub fn renderFn(image_buffer: [][]Color) !void {
         .img_width = image_width,
 
         // Render config.
-        .samples_per_pixel = 1,
+        .samples_per_pixel = 100,
         .max_depth = 16,
 
         // View.
@@ -70,10 +94,10 @@ pub fn renderFn(image_buffer: [][]Color) !void {
         .focus_dist = 10.0,
 
         // Writer.
-        .writer = ImageWriter{ .buffer = SharedStateImageWriter{ .data = image_buffer } },
+        .writer = ImageWriter{ .buffer = SharedStateImageWriter{ .data = context.image_buffer } },
     };
 
-    try camera.render(world);
+    try camera.render(context);
 }
 
 fn generateWorld(objects: *ObjectList) !Hittable {
@@ -242,20 +266,24 @@ const Camera = struct {
 
     writer: ImageWriter = undefined,
 
-    pub fn render(self: *Camera, world: Hittable) std.fs.File.Writer.Error!void {
+    pub fn render(self: *Camera, context: Task) std.fs.File.Writer.Error!void {
         try self.initialize();
 
-        for (1..self.img_height + 1) |y| {
-            for (1..self.img_width + 1) |x| {
-                var color = Color.init(0, 0, 0);
+        const start_at = context.thread_idx * context.chunk_size;
+        const end_before = start_at + context.chunk_size;
 
-                for (1..self.samples_per_pixel + 1) |_| {
-                    const ray = self.getRay(x, y);
-                    color = color.plus(self.rayColor(ray, world, self.max_depth));
-                }
+        for (start_at..end_before) |i| {
+            const x = @mod(i, self.img_width) + 1;
+            const y = @divTrunc(i, self.img_width) + 1;
 
-                try self.writeColor(x - 1, y - 1, color, self.samples_per_pixel);
+            var color = Color.init(0, 0, 0);
+
+            for (1..self.samples_per_pixel + 1) |_| {
+                const ray = self.getRay(x, y);
+                color = color.plus(self.rayColor(ray, context.world, self.max_depth));
             }
+
+            try self.writeColor(x - 1, y - 1, color, self.samples_per_pixel);
         }
     }
 
