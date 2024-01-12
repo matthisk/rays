@@ -21,13 +21,24 @@ var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 const allocator = gpa.allocator();
 
 const image_width: u32 = 400;
+const image_height: u32 = 225;
 const aspect_ratio = 16.0 / 9.0;
 
 pub fn main() !void {
-    try window.initialize(image_width, @intFromFloat(@as(f32, @floatFromInt(image_width)) / aspect_ratio), allocator, renderFn);
+    const image_buffer = try allocator.alloc([]Color, image_width);
+
+    for (0..image_width) |x| {
+        image_buffer[x] = try allocator.alloc(Color, image_height);
+    }
+
+    const thread = try std.Thread.spawn(.{ .allocator = allocator }, renderFn, .{image_buffer});
+
+    try window.initialize(image_width, image_height, image_buffer);
+
+    thread.join();
 }
 
-pub fn renderFn(sdl_window: *c.SDL_Window, surface: *c.SDL_Surface) !void {
+pub fn renderFn(image_buffer: [][]Color) !void {
     // Allocate heap.
     var objects = ObjectList.init(allocator);
     defer objects.deinit();
@@ -59,7 +70,7 @@ pub fn renderFn(sdl_window: *c.SDL_Window, surface: *c.SDL_Surface) !void {
         .focus_dist = 10.0,
 
         // Writer.
-        .writer = ImageWriter{ .sdl = SdlImageWriter{ .window = sdl_window, .surface = surface } },
+        .writer = ImageWriter{ .buffer = SharedStateImageWriter{ .data = image_buffer } },
     };
 
     try camera.render(world);
@@ -352,7 +363,7 @@ const Camera = struct {
 
 const ImageWriter = union(enum) {
     stdout: StdoutImageWriter,
-    sdl: SdlImageWriter,
+    buffer: SharedStateImageWriter,
 
     pub fn writeColor(self: ImageWriter, x: u64, y: u64, color: Color) !void {
         switch (self) {
@@ -382,30 +393,11 @@ const StdoutImageWriter = struct {
     }
 };
 
-const SdlImageWriter = struct {
-    window: *c.SDL_Window,
-    surface: *c.SDL_Surface,
+const SharedStateImageWriter = struct {
+    data: [][]Color,
 
-    pub fn writeColor(self: SdlImageWriter, x: u64, y: u64, color: Color) !void {
-        self.setPixel(@intCast(x), @intCast(y), colors.toBgra(color));
-    }
-
-    fn setPixel(self: SdlImageWriter, x: c_int, y: c_int, pixel: u32) void {
-        if (c.SDL_LockSurface(self.surface) != 0) {
-            return;
-        }
-        defer c.SDL_UnlockSurface(self.surface);
-
-        const target_pixel = @intFromPtr(self.surface.pixels) +
-            @as(usize, @intCast(y)) * @as(usize, @intCast(self.surface.pitch)) +
-            @as(usize, @intCast(x)) * 4;
-        @as(*u32, @ptrFromInt(target_pixel)).* = pixel;
-
-        if (x == 0) {
-            if (c.SDL_UpdateWindowSurface(self.window) != 0) {
-                c.SDL_Log("Error updating window surface: %s", c.SDL_GetError());
-            }
-        }
+    pub fn writeColor(self: SharedStateImageWriter, x: u64, y: u64, color: Color) !void {
+        self.data[x][y] = color;
     }
 };
 

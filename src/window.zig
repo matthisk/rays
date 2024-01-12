@@ -1,13 +1,15 @@
 const std = @import("std");
-const Color = @import("color.zig").Color;
+const colors = @import("color.zig");
 const c = @cImport({
     @cInclude("SDL2/SDL.h");
 });
 const assert = @import("std").debug.assert;
 
+const Color = colors.Color;
+
 const SDL_WINDOWPOS_UNDEFINED = @as(c_int, @bitCast(c.SDL_WINDOWPOS_UNDEFINED_MASK));
 
-pub fn initialize(w: i32, h: i32, allocator: std.mem.Allocator, renderFn: anytype) !void {
+pub fn initialize(w: i32, h: i32, image_buffer: [][]Color) !void {
     if (c.SDL_Init(c.SDL_INIT_VIDEO) != 0) {
         c.SDL_Log("Unable to initialize SDL: %s", c.SDL_GetError());
         return error.SDLInitializationFailed;
@@ -29,10 +31,6 @@ pub fn initialize(w: i32, h: i32, allocator: std.mem.Allocator, renderFn: anytyp
         return error.SDLUpdateWindowFailed;
     }
 
-    const thread = try std.Thread.spawn(.{ .allocator = allocator }, renderFn, .{ window, surface });
-
-    renderBlank(w, h, surface);
-
     if (c.SDL_UpdateWindowSurface(window) != 0) {
         c.SDL_Log("Error updating window surface: %s", c.SDL_GetError());
         return error.SDLUpdateWindowFailed;
@@ -50,21 +48,23 @@ pub fn initialize(w: i32, h: i32, allocator: std.mem.Allocator, renderFn: anytyp
             }
         }
 
+        renderImageBuffer(w, h, surface, image_buffer);
+
+        if (c.SDL_UpdateWindowSurface(window) != 0) {
+            c.SDL_Log("Error updating window surface: %s", c.SDL_GetError());
+        }
+
         c.SDL_Delay(16);
     }
-
-    // TODO: We quit the program, so we can terminate this thread.
-    thread.detach();
 
     c.SDL_DestroyWindow(window);
     c.SDL_Quit();
 }
 
-fn renderBlank(w: i32, h: i32, surface: *c.SDL_Surface) void {
-    const color = Color.init(0.5, 1, 1);
+fn renderImageBuffer(w: i32, h: i32, surface: *c.SDL_Surface, image_buffer: [][]Color) void {
     for (0..@intCast(w)) |x| {
         for (0..@intCast(h)) |y| {
-            setPixel(surface, @intCast(x), @intCast(y), toBgra(@as(u32, @intFromFloat(255.99 * color.x)), @as(u32, @intFromFloat(255.99 * color.y)), @as(u32, @intFromFloat(255.99 * color.z))));
+            setPixel(surface, @intCast(x), @intCast(y), colors.toBgra(image_buffer[x][y]));
         }
     }
 }
