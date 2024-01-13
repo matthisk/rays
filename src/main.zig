@@ -76,8 +76,8 @@ pub fn renderFn(context: Task) !void {
     // Initialize camera and render frame.
     camera.* = Camera{
         // Output.
-        .aspect_ratio = aspect_ratio,
         .img_width = image_width,
+        .img_height = image_height,
 
         // Render config.
         .samples_per_pixel = 100,
@@ -94,7 +94,7 @@ pub fn renderFn(context: Task) !void {
         .focus_dist = 10.0,
 
         // Writer.
-        .writer = ImageWriter{ .buffer = SharedStateImageWriter{ .data = context.image_buffer } },
+        .writer = SharedStateImageWriter.init(context.image_buffer),
     };
 
     try camera.render(context);
@@ -129,6 +129,13 @@ fn generateWorld(objects: *ObjectList) !Hittable {
             }
         }
     }
+
+    const sphere_material = Material{ .dielectric = Dielectric{ .index_of_refraction = 1.5 } };
+    try objects.append(Hittable{ .sphere = Sphere{ .center = Vec3.init(0, 1.5, 0), .radius = 1.5, .mat = sphere_material } });
+    try objects.append(Hittable{ .sphere = Sphere{ .center = Vec3.init(0, 1.5, 0), .radius = -1.3, .mat = sphere_material } });
+
+    const sphere_material_2 = Material{ .lambertian = Lambertian{ .albedo = vecs.random().multiplyByVec3(vecs.random()) } };
+    try objects.append(Hittable{ .sphere = Sphere{ .center = Vec3.init(1, 1.5, 1.5), .radius = 1.5, .mat = sphere_material_2 } });
 
     return Hittable{ .list = HittableList{ .objects = objects.items } };
 }
@@ -242,10 +249,10 @@ const Interval = struct {
 const Camera = struct {
     aspect_ratio: f64 = 1.0, // Ratio of image width over height
     img_width: u32 = 0, // Rendered image width in pixel count
+    img_height: u32 = 0,
     samples_per_pixel: u32 = 100, // Count of random samples for each pixel
     max_depth: u32 = 100, // Maximum number of ray bounces into scene
     vfov: f64 = 90, // Vertical view angle (field of view).
-    img_height: u32 = 0,
     center: Vec3 = Vec3.init(0, 0, 0),
     pixel00_loc: Vec3 = Vec3.init(0, 0, 0),
     pixel_delta_u: Vec3 = Vec3.init(0, 0, 0),
@@ -288,8 +295,6 @@ const Camera = struct {
     }
 
     fn initialize(self: *Camera) !void {
-        self.img_height = @intFromFloat(@as(f64, @floatFromInt(self.img_width)) / self.aspect_ratio);
-
         self.center = self.lookfrom;
 
         // Camera
@@ -422,10 +427,16 @@ const StdoutImageWriter = struct {
 };
 
 const SharedStateImageWriter = struct {
-    data: [][]Color,
+    buffer: [][]Color,
+
+    pub fn init(buffer: [][]Color) ImageWriter {
+        return ImageWriter{ .buffer = .{
+            .buffer = buffer,
+        } };
+    }
 
     pub fn writeColor(self: SharedStateImageWriter, x: u64, y: u64, color: Color) !void {
-        self.data[x][y] = color;
+        self.buffer[x][y] = color;
     }
 };
 
