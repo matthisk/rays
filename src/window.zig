@@ -59,6 +59,8 @@ pub fn initialize(w: i32, h: i32, image_buffer: [][]Color) !void {
 
     c.SDL_DestroyWindow(window);
     c.SDL_Quit();
+
+    // TODO this should also kill the process.
 }
 
 fn renderImageBuffer(w: i32, h: i32, surface: *c.SDL_Surface, image_buffer: [][]Color) void {

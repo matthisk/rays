@@ -70,11 +70,8 @@ const Task = struct {
 };
 
 pub fn renderFn(context: Task) !void {
-    const camera = try allocator.create(Camera);
-    defer allocator.destroy(camera);
-
     // Initialize camera and render frame.
-    camera.* = Camera{
+    var camera = Camera{
         // Output.
         .img_width = image_width,
         .img_height = image_height,
