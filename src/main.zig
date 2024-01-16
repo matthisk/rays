@@ -20,6 +20,7 @@ const Vec3 = vecs.Vec3;
 const Ray = rays.Ray;
 const Color = colors.Color;
 const ColorAndSamples = colors.ColorAndSamples;
+const Vector3 = @Vector(3, f64);
 
 const ObjectList = std.ArrayList(Hittable);
 
@@ -54,36 +55,6 @@ pub fn main() !void {
     // Generate a random world.
     const world = try generateWorld(&objects);
 
-    var threads = std.ArrayList(std.Thread).init(allocator);
-
-    for (0..number_of_threads) |thread_idx| {
-        const task = Task{
-            .thread_idx = @intCast(thread_idx),
-            .chunk_size = (image_width * image_height) / number_of_threads,
-            .image_buffer = image_buffer,
-            .world = world,
-        };
-
-        const thread = try std.Thread.spawn(.{ .allocator = allocator }, renderFn, .{task});
-
-        try threads.append(thread);
-    }
-
-    try window.initialize(image_width, image_height, image_buffer);
-
-    for (threads.items) |thread| {
-        thread.join();
-    }
-}
-
-const Task = struct {
-    thread_idx: u32,
-    chunk_size: u32,
-    image_buffer: [][]ColorAndSamples,
-    world: Hittable,
-};
-
-pub fn renderFn(context: Task) !void {
     // Initialize camera and render frame.
     var camera = Camera{
         // Output.
@@ -105,10 +76,40 @@ pub fn renderFn(context: Task) !void {
         .focus_dist = 10.0,
 
         // Writer.
-        .writer = SharedStateImageWriter.init(context.image_buffer),
+        .writer = SharedStateImageWriter.init(image_buffer),
     };
 
-    try camera.render(context);
+    var threads = std.ArrayList(std.Thread).init(allocator);
+
+    for (0..number_of_threads) |thread_idx| {
+        const task = Task{
+            .thread_idx = @intCast(thread_idx),
+            .chunk_size = (image_width * image_height) / number_of_threads,
+            .world = world,
+            .camera = &camera,
+        };
+
+        const thread = try std.Thread.spawn(.{ .allocator = allocator }, renderFn, .{task});
+
+        try threads.append(thread);
+    }
+
+    try window.initialize(image_width, image_height, image_buffer);
+
+    for (threads.items) |thread| {
+        thread.join();
+    }
+}
+
+const Task = struct {
+    thread_idx: u32,
+    chunk_size: u32,
+    world: Hittable,
+    camera: *Camera,
+};
+
+pub fn renderFn(context: Task) !void {
+    try context.camera.render(context);
 }
 
 fn generateWorld(objects: *ObjectList) !Hittable {
@@ -329,6 +330,8 @@ const Camera = struct {
         const unit_direction = vecs.unitVector(ray.direction);
         const a = 0.5 * (unit_direction.y + 1.0);
 
+        // const vec = Vector3{ 1, 1, 1 } * @as(Vector3, @splat(1.0 - a)) + Vector3{ 0.5, 0.7, 1.0 } * @as(Vector3, @splat(a));
+        // return Color.init(vec[0], vec[1], vec[2]);
         return Color.init(1.0, 1.0, 1.0).multiply(1.0 - a).plus(Color.init(0.5, 0.7, 1.0).multiply(a));
     }
 
