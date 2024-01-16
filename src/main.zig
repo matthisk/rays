@@ -7,6 +7,7 @@ const rays = @import("ray.zig");
 const colors = @import("color.zig");
 const rand = @import("rand.zig");
 const window = @import("window.zig");
+const Interval = @import("interval.zig");
 
 const degreesToRadians = @import("math.zig").degreesToRadians;
 const linearToGamma = @import("math.zig").linearToGamma;
@@ -18,19 +19,27 @@ const Color = colors.Color;
 const ObjectList = std.ArrayList(Hittable);
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-const allocator = gpa.allocator();
+var arena = std.heap.ArenaAllocator.init(gpa.allocator());
+var allocator = arena.allocator();
 
-const image_width: u32 = 400;
-const image_height: u32 = 225;
+const image_width: u32 = 1024;
+const image_height: u32 = 576;
 const aspect_ratio = 16.0 / 9.0;
 
 const number_of_threads = 16;
 
 pub fn main() !void {
+    defer arena.deinit();
     const image_buffer = try allocator.alloc([]Color, image_width);
 
     for (0..image_width) |x| {
         image_buffer[x] = try allocator.alloc(Color, image_height);
+    }
+
+    for (0..image_width) |x| {
+        for (0..image_height) |y| {
+            image_buffer[x][y] = Color.init(0, 0, 0);
+        }
     }
 
     // Allocate heap.
@@ -216,33 +225,6 @@ const HittableList = struct {
     }
 };
 
-const Interval = struct {
-    min: f64 = std.math.inf(f64),
-    max: f64 = -std.math.inf(f64),
-
-    pub fn empty() Interval {
-        return Interval{ .min = std.math.inf(f64), .max = -std.math.inf(f64) };
-    }
-
-    pub fn universe() Interval {
-        return Interval{ .min = -std.math.inf(f64), .max = std.math.inf(f64) };
-    }
-
-    pub fn contains(self: Interval, x: f64) bool {
-        return self.min <= x and x <= self.max;
-    }
-
-    pub fn surrounds(self: Interval, x: f64) bool {
-        return self.min < x and x < self.max;
-    }
-
-    pub fn clamp(self: Interval, x: f64) f64 {
-        if (x < self.min) return self.min;
-        if (x > self.max) return self.max;
-        return x;
-    }
-};
-
 const Camera = struct {
     aspect_ratio: f64 = 1.0, // Ratio of image width over height
     img_width: u32 = 0, // Rendered image width in pixel count
@@ -276,18 +258,16 @@ const Camera = struct {
         const start_at = context.thread_idx * context.chunk_size;
         const end_before = start_at + context.chunk_size;
 
-        for (start_at..end_before) |i| {
-            const x = @mod(i, self.img_width) + 1;
-            const y = @divTrunc(i, self.img_width) + 1;
+        for (1..self.samples_per_pixel + 1) |_| {
+            for (start_at..end_before) |i| {
+                const x = @mod(i, self.img_width) + 1;
+                const y = @divTrunc(i, self.img_width) + 1;
 
-            var color = Color.init(0, 0, 0);
-
-            for (1..self.samples_per_pixel + 1) |_| {
                 const ray = self.getRay(x, y);
-                color = color.plus(self.rayColor(ray, context.world, self.max_depth));
-            }
+                const color = self.rayColor(ray, context.world, self.max_depth);
 
-            try self.writeColor(x - 1, y - 1, color, self.samples_per_pixel);
+                try self.writer.writeColor(x - 1, y - 1, color);
+            }
         }
     }
 
@@ -433,7 +413,7 @@ const SharedStateImageWriter = struct {
     }
 
     pub fn writeColor(self: SharedStateImageWriter, x: u64, y: u64, color: Color) !void {
-        self.buffer[x][y] = color;
+        self.buffer[x][y] = self.buffer[x][y].plus(color);
     }
 };
 

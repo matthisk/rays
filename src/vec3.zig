@@ -2,9 +2,9 @@ const std = @import("std");
 const rand = @import("rand.zig");
 
 pub const Vec3 = struct {
-    x: f64,
-    y: f64,
-    z: f64,
+    x: f64 = 0,
+    y: f64 = 0,
+    z: f64 = 0,
 
     pub fn zero() Vec3 {
         return Vec3{ .x = 0, .y = 0, .z = 0 };

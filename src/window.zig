@@ -66,7 +66,7 @@ pub fn initialize(w: i32, h: i32, image_buffer: [][]Color) !void {
 fn renderImageBuffer(w: i32, h: i32, surface: *c.SDL_Surface, image_buffer: [][]Color) void {
     for (0..@intCast(w)) |x| {
         for (0..@intCast(h)) |y| {
-            setPixel(surface, @intCast(x), @intCast(y), colors.toBgra(image_buffer[x][y]));
+            setPixel(surface, @intCast(x), @intCast(y), colors.toBgra(colors.toGamma(image_buffer[x][y], 1.0 / 100.0)));
         }
     }
 }
@@ -76,8 +76,4 @@ fn setPixel(surf: *c.SDL_Surface, x: c_int, y: c_int, pixel: u32) void {
         @as(usize, @intCast(y)) * @as(usize, @intCast(surf.pitch)) +
         @as(usize, @intCast(x)) * 4;
     @as(*u32, @ptrFromInt(target_pixel)).* = pixel;
-}
-
-fn toBgra(r: u32, g: u32, b: u32) u32 {
-    return 255 << 24 | r << 16 | g << 8 | b;
 }
