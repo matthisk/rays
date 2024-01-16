@@ -5,11 +5,11 @@ const c = @cImport({
 });
 const assert = @import("std").debug.assert;
 
-const Color = colors.Color;
+const ColorAndSamples = colors.ColorAndSamples;
 
 const SDL_WINDOWPOS_UNDEFINED = @as(c_int, @bitCast(c.SDL_WINDOWPOS_UNDEFINED_MASK));
 
-pub fn initialize(w: i32, h: i32, image_buffer: [][]Color) !void {
+pub fn initialize(w: i32, h: i32, image_buffer: [][]ColorAndSamples) !void {
     if (c.SDL_Init(c.SDL_INIT_VIDEO) != 0) {
         c.SDL_Log("Unable to initialize SDL: %s", c.SDL_GetError());
         return error.SDLInitializationFailed;
@@ -63,10 +63,10 @@ pub fn initialize(w: i32, h: i32, image_buffer: [][]Color) !void {
     // TODO this should also kill the process.
 }
 
-fn renderImageBuffer(w: i32, h: i32, surface: *c.SDL_Surface, image_buffer: [][]Color) void {
+fn renderImageBuffer(w: i32, h: i32, surface: *c.SDL_Surface, image_buffer: [][]ColorAndSamples) void {
     for (0..@intCast(w)) |x| {
         for (0..@intCast(h)) |y| {
-            setPixel(surface, @intCast(x), @intCast(y), colors.toBgra(colors.toGamma(image_buffer[x][y], 1.0 / 100.0)));
+            setPixel(surface, @intCast(x), @intCast(y), colors.toBgra(colors.toGamma(image_buffer[x][y].color, 1.0 / @as(f64, @floatFromInt(image_buffer[x][y].number_of_samples)))));
         }
     }
 }

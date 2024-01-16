@@ -5,6 +5,11 @@ const Interval = @import("interval.zig");
 
 pub const Color = vecs.Vec3;
 
+pub const ColorAndSamples = struct {
+    color: Color,
+    number_of_samples: u64,
+};
+
 pub fn toBgra(color: Color) u32 {
     const r: u32 = @intFromFloat(color.x * 255.999);
     const g: u32 = @intFromFloat(color.y * 255.999);

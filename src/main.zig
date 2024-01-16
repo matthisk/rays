@@ -8,6 +8,10 @@ const colors = @import("color.zig");
 const rand = @import("rand.zig");
 const window = @import("window.zig");
 const Interval = @import("interval.zig");
+const Material = @import("material.zig").Material;
+const Dielectric = @import("material.zig").Dielectric;
+const Lambertian = @import("material.zig").Lambertian;
+const Metal = @import("material.zig").Metal;
 
 const degreesToRadians = @import("math.zig").degreesToRadians;
 const linearToGamma = @import("math.zig").linearToGamma;
@@ -15,6 +19,7 @@ const linearToGamma = @import("math.zig").linearToGamma;
 const Vec3 = vecs.Vec3;
 const Ray = rays.Ray;
 const Color = colors.Color;
+const ColorAndSamples = colors.ColorAndSamples;
 
 const ObjectList = std.ArrayList(Hittable);
 
@@ -30,15 +35,15 @@ const number_of_threads = 16;
 
 pub fn main() !void {
     defer arena.deinit();
-    const image_buffer = try allocator.alloc([]Color, image_width);
+    const image_buffer = try allocator.alloc([]ColorAndSamples, image_width);
 
     for (0..image_width) |x| {
-        image_buffer[x] = try allocator.alloc(Color, image_height);
+        image_buffer[x] = try allocator.alloc(ColorAndSamples, image_height);
     }
 
     for (0..image_width) |x| {
         for (0..image_height) |y| {
-            image_buffer[x][y] = Color.init(0, 0, 0);
+            image_buffer[x][y] = .{ .color = Color.init(0, 0, 0), .number_of_samples = 1 };
         }
     }
 
@@ -74,7 +79,7 @@ pub fn main() !void {
 const Task = struct {
     thread_idx: u32,
     chunk_size: u32,
-    image_buffer: [][]Color,
+    image_buffer: [][]ColorAndSamples,
     world: Hittable,
 };
 
@@ -146,7 +151,7 @@ fn generateWorld(objects: *ObjectList) !Hittable {
     return Hittable{ .list = HittableList{ .objects = objects.items } };
 }
 
-const HitRecord = struct {
+pub const HitRecord = struct {
     p: Vec3 = Vec3.init(0, 0, 0),
     normal: Vec3 = Vec3.init(0, 0, 0),
     t: f64 = 0,
@@ -250,7 +255,7 @@ const Camera = struct {
     v: Vec3 = undefined,
     w: Vec3 = undefined,
 
-    writer: ImageWriter = undefined,
+    writer: SharedStateImageWriter = undefined,
 
     pub fn render(self: *Camera, context: Task) std.fs.File.Writer.Error!void {
         try self.initialize();
@@ -258,7 +263,7 @@ const Camera = struct {
         const start_at = context.thread_idx * context.chunk_size;
         const end_before = start_at + context.chunk_size;
 
-        for (1..self.samples_per_pixel + 1) |_| {
+        for (1..self.samples_per_pixel + 1) |number_of_samples| {
             for (start_at..end_before) |i| {
                 const x = @mod(i, self.img_width) + 1;
                 const y = @divTrunc(i, self.img_width) + 1;
@@ -266,7 +271,7 @@ const Camera = struct {
                 const ray = self.getRay(x, y);
                 const color = self.rayColor(ray, context.world, self.max_depth);
 
-                try self.writer.writeColor(x - 1, y - 1, color);
+                try self.writer.writeColor(x - 1, y - 1, color, number_of_samples);
             }
         }
     }
@@ -350,152 +355,21 @@ const Camera = struct {
         const p = vecs.randomInUnitDisk();
         return self.center.plus(self.defocus_disk_u.multiply(p.x)).plus(self.defocus_disk_v.multiply(p.y));
     }
-
-    fn writeColor(self: *Camera, x: u64, y: u64, color: Color, samples_per_pixel: u32) std.fs.File.Writer.Error!void {
-        var r = color.x;
-        var g = color.y;
-        var b = color.z;
-
-        const scale = 1.0 / @as(f64, @floatFromInt(samples_per_pixel));
-        r *= scale;
-        g *= scale;
-        b *= scale;
-
-        r = linearToGamma(r);
-        g = linearToGamma(g);
-        b = linearToGamma(b);
-
-        const intensity = Interval{ .min = 0.0, .max = 0.999 };
-
-        try self.writer.writeColor(x, y, Color.init(intensity.clamp(r), intensity.clamp(g), intensity.clamp(b)));
-    }
-};
-
-const ImageWriter = union(enum) {
-    stdout: StdoutImageWriter,
-    buffer: SharedStateImageWriter,
-
-    pub fn writeColor(self: ImageWriter, x: u64, y: u64, color: Color) !void {
-        switch (self) {
-            inline else => |case| try case.writeColor(x, y, color),
-        }
-    }
-};
-
-const StdoutImageWriter = struct {
-    stdout: std.fs.File.Writer,
-
-    pub fn init(img_width: u64, img_height: u64) !ImageWriter {
-        var stdout = std.io.getStdOut().writer();
-        try stdout.print("P3\n{d} {d}\n255\n", .{ img_width, img_height });
-
-        return ImageWriter{ .stdout = StdoutImageWriter{
-            .stdout = stdout,
-        } };
-    }
-
-    pub fn writeColor(self: StdoutImageWriter, _: u64, _: u64, color: Color) !void {
-        try self.stdout.print("{d} {d} {d}\n", .{
-            @floor(color.x * 255.999),
-            @floor(color.y * 255.999),
-            @floor(color.z * 255.999),
-        });
-    }
 };
 
 const SharedStateImageWriter = struct {
-    buffer: [][]Color,
+    buffer: [][]ColorAndSamples,
 
-    pub fn init(buffer: [][]Color) ImageWriter {
-        return ImageWriter{ .buffer = .{
+    pub fn init(buffer: [][]ColorAndSamples) SharedStateImageWriter {
+        return .{
             .buffer = buffer,
-        } };
-    }
-
-    pub fn writeColor(self: SharedStateImageWriter, x: u64, y: u64, color: Color) !void {
-        self.buffer[x][y] = self.buffer[x][y].plus(color);
-    }
-};
-
-const Material = union(enum) {
-    lambertian: Lambertian,
-    metal: Metal,
-    dielectric: Dielectric,
-
-    pub fn scatter(self: Material, ray_in: Ray, record: HitRecord, attenuation: *Color, scattered: *Ray) bool {
-        return switch (self) {
-            inline else => |case| case.scatter(ray_in, record, attenuation, scattered),
-        };
-    }
-};
-
-const Lambertian = struct {
-    albedo: Color,
-
-    pub fn scatter(self: Lambertian, _: Ray, record: HitRecord, attenuation: *Color, scattered: *Ray) bool {
-        var scatter_direction = record.normal.plus(vecs.randomUnitVector());
-
-        if (scatter_direction.nearZero()) {
-            scatter_direction = record.normal;
-        }
-
-        scattered.* = Ray{ .origin = record.p, .direction = scatter_direction };
-        attenuation.* = self.albedo;
-
-        return true;
-    }
-};
-
-const Metal = struct {
-    albedo: Color,
-    fuzz: f64,
-
-    pub fn init(albedo: Color, f: f64) Metal {
-        return Metal{
-            .albedo = albedo,
-            .fuzz = if (f < 1) f else 1,
         };
     }
 
-    pub fn scatter(self: Metal, r_in: Ray, record: HitRecord, attenuation: *Color, scattered: *Ray) bool {
-        const reflected = vecs.reflect(vecs.unitVector(r_in.direction), record.normal);
-
-        scattered.* = Ray{ .origin = record.p, .direction = reflected.plus(vecs.randomUnitVector().multiply(self.fuzz)) };
-        attenuation.* = self.albedo;
-
-        return true;
-    }
-};
-
-const Dielectric = struct {
-    index_of_refraction: f64,
-
-    pub fn scatter(self: Dielectric, r_in: Ray, record: HitRecord, attenuation: *Color, scattered: *Ray) bool {
-        attenuation.* = Color.init(1.0, 1.0, 1.0);
-        const refraction_ratio = if (record.front_face) (1.0 / self.index_of_refraction) else self.index_of_refraction;
-
-        const unit_direction = vecs.unitVector(r_in.direction);
-        const cos_theta = @min(unit_direction.multiply(-1).dot(record.normal), 1.0);
-        const sin_theta = std.math.sqrt(1.0 - cos_theta * cos_theta);
-
-        const cannot_refract = refraction_ratio * sin_theta > 1.0;
-        var direction: Vec3 = undefined;
-
-        if (cannot_refract or reflectance(cos_theta, refraction_ratio) > rand.randomFloat()) {
-            direction = vecs.reflect(unit_direction, record.normal);
-        } else {
-            direction = vecs.refract(unit_direction, record.normal, refraction_ratio);
-        }
-
-        scattered.* = Ray{ .origin = record.p, .direction = direction };
-
-        return true;
-    }
-
-    fn reflectance(cosine: f64, ref_idx: f64) f64 {
-        var r0 = (1 - ref_idx) / (1 + ref_idx);
-        r0 = r0 * r0;
-
-        return r0 + (1 - r0) * std.math.pow(f64, (1 - cosine), 5);
+    pub fn writeColor(self: SharedStateImageWriter, x: u64, y: u64, color: Color, number_of_samples: u64) !void {
+        self.buffer[x][y] = ColorAndSamples{
+            .color = self.buffer[x][y].color.plus(color),
+            .number_of_samples = number_of_samples,
+        };
     }
 };
