@@ -12,6 +12,7 @@ const Material = @import("material.zig").Material;
 const Dielectric = @import("material.zig").Dielectric;
 const Lambertian = @import("material.zig").Lambertian;
 const Metal = @import("material.zig").Metal;
+const printPpmToStdout = @import("stdout.zig").printPpmToStdout;
 
 const degreesToRadians = @import("math.zig").degreesToRadians;
 const linearToGamma = @import("math.zig").linearToGamma;
@@ -28,11 +29,11 @@ var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 var arena = std.heap.ArenaAllocator.init(gpa.allocator());
 var allocator = arena.allocator();
 
-const image_width: u32 = 1024;
-const image_height: u32 = 576;
+const image_width: u32 = 400;
+const image_height: u32 = 225;
 const aspect_ratio = 16.0 / 9.0;
 
-const number_of_threads = 16;
+const number_of_threads = 8;
 
 pub fn main() !void {
     defer arena.deinit();
@@ -62,7 +63,7 @@ pub fn main() !void {
         .img_height = image_height,
 
         // Render config.
-        .samples_per_pixel = 100,
+        .samples_per_pixel = 1,
         .max_depth = 16,
 
         // View.
@@ -94,11 +95,13 @@ pub fn main() !void {
         try threads.append(thread);
     }
 
-    try window.initialize(image_width, image_height, image_buffer);
+    // try window.initialize(image_width, image_height, image_buffer);
 
     for (threads.items) |thread| {
         thread.join();
     }
+
+    try printPpmToStdout(image_buffer);
 }
 
 const Task = struct {
