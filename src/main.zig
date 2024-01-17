@@ -2,7 +2,7 @@ const std = @import("std");
 const c = @cImport({
     @cInclude("SDL2/SDL.h");
 });
-const vecs = @import("vec3.zig");
+const vector = @import("vector.zig");
 const rays = @import("ray.zig");
 const colors = @import("color.zig");
 const rand = @import("rand.zig");
@@ -17,11 +17,10 @@ const printPpmToStdout = @import("stdout.zig").printPpmToStdout;
 const degreesToRadians = @import("math.zig").degreesToRadians;
 const linearToGamma = @import("math.zig").linearToGamma;
 
-const Vec3 = vecs.Vec3;
+const Vector3 = vector.Vector3;
 const Ray = rays.Ray;
 const Color = colors.Color;
 const ColorAndSamples = colors.ColorAndSamples;
-const Vector3 = @Vector(3, f64);
 
 const ObjectList = std.ArrayList(Hittable);
 
@@ -45,7 +44,7 @@ pub fn main() !void {
 
     for (0..image_width) |x| {
         for (0..image_height) |y| {
-            image_buffer[x][y] = .{ .color = Color.init(0, 0, 0), .number_of_samples = 1 };
+            image_buffer[x][y] = vector.Vector4{ 0, 0, 0, 1 };
         }
     }
 
@@ -63,14 +62,14 @@ pub fn main() !void {
         .img_height = image_height,
 
         // Render config.
-        .samples_per_pixel = 1,
+        .samples_per_pixel = 100,
         .max_depth = 16,
 
         // View.
         .vfov = 20,
-        .lookfrom = Vec3.init(13, 2, 3),
-        .lookat = Vec3.init(0, 0, 0),
-        .vup = Vec3.init(0, 1, 0),
+        .lookfrom = Vector3{ 13, 2, 3 },
+        .lookat = Vector3{ 0, 0, 0 },
+        .vup = Vector3{ 0, 1, 0 },
 
         // Focus.
         .defocus_angle = 0.6,
@@ -95,13 +94,13 @@ pub fn main() !void {
         try threads.append(thread);
     }
 
-    // try window.initialize(image_width, image_height, image_buffer);
+    try window.initialize(image_width, image_height, image_buffer);
 
     for (threads.items) |thread| {
         thread.join();
     }
 
-    try printPpmToStdout(image_buffer);
+    // try printPpmToStdout(image_buffer);
 }
 
 const Task = struct {
@@ -116,9 +115,9 @@ pub fn renderFn(context: Task) !void {
 }
 
 fn generateWorld(objects: *ObjectList) !Hittable {
-    const material_ground = Material{ .lambertian = Lambertian{ .albedo = Color.init(0.5, 0.5, 0.5) } };
+    const material_ground = Material{ .lambertian = Lambertian{ .albedo = Color{ 0.5, 0.5, 0.5 } } };
 
-    try objects.append(Hittable{ .sphere = Sphere{ .center = Vec3.init(0, -1000, 0), .radius = 1000, .mat = material_ground } });
+    try objects.append(Hittable{ .sphere = Sphere{ .center = Vector3{ 0, -1000, 0 }, .radius = 1000, .mat = material_ground } });
 
     for (0..22) |k| {
         for (0..22) |l| {
@@ -126,16 +125,16 @@ fn generateWorld(objects: *ObjectList) !Hittable {
             const b: f64 = @as(f64, @floatFromInt(l)) - 11;
 
             const choose_mat = rand.randomFloat();
-            const center = Vec3.init(a + 0.9 * rand.randomFloat(), 0.2, b + 0.9 * rand.randomFloat());
+            const center = Vector3{ a + 0.9 * rand.randomFloat(), 0.2, b + 0.9 * rand.randomFloat() };
 
-            if (center.minus(Vec3.init(4, 0.2, 0)).length() > 0.9) {
+            if (vector.length(center - Vector3{ 4, 0.2, 0 }) > 0.9) {
                 var sphere_material: Material = undefined;
 
                 if (choose_mat < 0.8) {
-                    sphere_material = Material{ .lambertian = Lambertian{ .albedo = vecs.random().multiplyByVec3(vecs.random()) } };
+                    sphere_material = Material{ .lambertian = Lambertian{ .albedo = vector.random() * vector.random() } };
                 } else if (choose_mat < 0.95) {
                     const fuzz = rand.randomBetween(0.0, 0.5);
-                    sphere_material = Material{ .metal = Metal{ .albedo = vecs.random().multiplyByVec3(vecs.randomBetween(0.5, 1)), .fuzz = fuzz } };
+                    sphere_material = Material{ .metal = Metal{ .albedo = vector.random() * vector.randomBetween(0.5, 1), .fuzz = fuzz } };
                 } else {
                     sphere_material = Material{ .dielectric = Dielectric{ .index_of_refraction = 1.5 } };
                 }
@@ -146,27 +145,27 @@ fn generateWorld(objects: *ObjectList) !Hittable {
     }
 
     const sphere_material = Material{ .dielectric = Dielectric{ .index_of_refraction = 1.5 } };
-    try objects.append(Hittable{ .sphere = Sphere{ .center = Vec3.init(0, 1.5, 0), .radius = 1.5, .mat = sphere_material } });
-    try objects.append(Hittable{ .sphere = Sphere{ .center = Vec3.init(0, 1.5, 0), .radius = -1.3, .mat = sphere_material } });
+    try objects.append(Hittable{ .sphere = Sphere{ .center = Vector3{ 0, 1.5, 0 }, .radius = 1.5, .mat = sphere_material } });
+    try objects.append(Hittable{ .sphere = Sphere{ .center = Vector3{ 0, 1.5, 0 }, .radius = -1.3, .mat = sphere_material } });
 
-    const sphere_material_2 = Material{ .lambertian = Lambertian{ .albedo = vecs.random().multiplyByVec3(vecs.random()) } };
-    try objects.append(Hittable{ .sphere = Sphere{ .center = Vec3.init(1, 1.5, 1.5), .radius = 1.5, .mat = sphere_material_2 } });
+    const sphere_material_2 = Material{ .lambertian = Lambertian{ .albedo = vector.random() * vector.random() } };
+    try objects.append(Hittable{ .sphere = Sphere{ .center = Vector3{ 1, 1.5, 1.5 }, .radius = 1.5, .mat = sphere_material_2 } });
 
     return Hittable{ .list = HittableList{ .objects = objects.items } };
 }
 
 pub const HitRecord = struct {
-    p: Vec3 = Vec3.init(0, 0, 0),
-    normal: Vec3 = Vec3.init(0, 0, 0),
+    p: Vector3 = Vector3{ 0, 0, 0 },
+    normal: Vector3 = Vector3{ 0, 0, 0 },
     t: f64 = 0,
     front_face: bool = false,
     mat: Material = undefined,
 
-    // Sets the hit record normal vector.
+    // Sets the hit record normal
     // NOTE: the parameter `outward_normal` is assumed to have unit length.
-    pub fn setFaceNormal(self: *HitRecord, ray: Ray, outward_normal: Vec3) void {
-        self.front_face = ray.direction.dot(outward_normal) < 0;
-        self.normal = if (self.front_face) outward_normal else outward_normal.multiply(-1);
+    pub fn setFaceNormal(self: *HitRecord, ray: Ray, outward_normal: Vector3) void {
+        self.front_face = vector.dot(ray.direction, outward_normal) < 0;
+        self.normal = if (self.front_face) outward_normal else -outward_normal;
     }
 };
 
@@ -182,15 +181,15 @@ const Hittable = union(enum) {
 };
 
 const Sphere = struct {
-    center: Vec3,
+    center: Vector3,
     radius: f64,
     mat: Material,
 
     pub fn hit(self: Sphere, ray: Ray, ray_t: Interval) ?HitRecord {
-        const oc = ray.origin.minus(self.center);
-        const a = ray.direction.lengthSquared();
-        const half_b = oc.dot(ray.direction);
-        const cc = oc.lengthSquared() - self.radius * self.radius;
+        const oc = ray.origin - self.center;
+        const a = vector.lengthSquared(ray.direction);
+        const half_b = vector.dot(oc, ray.direction);
+        const cc = vector.lengthSquared(oc) - self.radius * self.radius;
         const discriminant = half_b * half_b - a * cc;
         if (discriminant < 0) return null;
         const sqrtd = std.math.sqrt(discriminant);
@@ -208,7 +207,7 @@ const Sphere = struct {
         hit_record.t = root;
         hit_record.p = ray.at(hit_record.t);
         hit_record.mat = self.mat;
-        const outward_normal = hit_record.p.minus(self.center).divide(self.radius);
+        const outward_normal = (hit_record.p - self.center) / vector.splat3(self.radius);
         hit_record.setFaceNormal(ray, outward_normal);
 
         return hit_record;
@@ -241,23 +240,23 @@ const Camera = struct {
     samples_per_pixel: u32 = 100, // Count of random samples for each pixel
     max_depth: u32 = 100, // Maximum number of ray bounces into scene
     vfov: f64 = 90, // Vertical view angle (field of view).
-    center: Vec3 = Vec3.init(0, 0, 0),
-    pixel00_loc: Vec3 = Vec3.init(0, 0, 0),
-    pixel_delta_u: Vec3 = Vec3.init(0, 0, 0),
-    pixel_delta_v: Vec3 = Vec3.init(0, 0, 0),
+    center: Vector3 = Vector3{ 0, 0, 0 },
+    pixel00_loc: Vector3 = Vector3{ 0, 0, 0 },
+    pixel_delta_u: Vector3 = Vector3{ 0, 0, 0 },
+    pixel_delta_v: Vector3 = Vector3{ 0, 0, 0 },
 
-    lookfrom: Vec3 = Vec3.init(0, 0, -1), // Point camera is looking from
-    lookat: Vec3 = Vec3.init(0, 0, 0), // Point camera is looking at
-    vup: Vec3 = Vec3.init(0, 1, 0), // Camera-relative "up" direction
+    lookfrom: Vector3 = Vector3{ 0, 0, -1 }, // Point camera is looking from
+    lookat: Vector3 = Vector3{ 0, 0, 0 }, // Point camera is looking at
+    vup: Vector3 = Vector3{ 0, 1, 0 }, // Camera-relative "up" direction
 
     defocus_angle: f64 = 0, // Variation angle of rays through each pixel
     focus_dist: f64 = 10.0, // Distance from camera lookfrom point to plane of perfect focus
-    defocus_disk_u: Vec3 = undefined,
-    defocus_disk_v: Vec3 = undefined,
+    defocus_disk_u: Vector3 = undefined,
+    defocus_disk_v: Vector3 = undefined,
 
-    u: Vec3 = undefined,
-    v: Vec3 = undefined,
-    w: Vec3 = undefined,
+    u: Vector3 = undefined,
+    v: Vector3 = undefined,
+    w: Vector3 = undefined,
 
     writer: SharedStateImageWriter = undefined,
 
@@ -291,31 +290,31 @@ const Camera = struct {
         const viewport_width = viewport_height * viewport_aspect_ratio;
 
         // Calculate the u,v,w unit basis vectors for the camera coordinate frame.
-        self.w = vecs.unitVector(self.lookfrom.minus(self.lookat));
-        self.u = vecs.unitVector(self.vup.cross(self.w));
-        self.v = self.w.cross(self.u);
+        self.w = vector.unitVector(self.lookfrom - self.lookat);
+        self.u = vector.unitVector(vector.cross(self.vup, self.w));
+        self.v = vector.cross(self.w, self.u);
 
         // Calculate the vectors across the horizontal and down the vertical viewport edges.
-        const viewport_u = self.u.multiply(viewport_width);
-        const viewport_v = self.v.multiply(-viewport_height);
+        const viewport_u = self.u * vector.splat3(viewport_width);
+        const viewport_v = self.v * vector.splat3(-viewport_height);
 
         // Calculate the horizontal and vertical delta vectors from pixel to pixel.
-        self.pixel_delta_u = viewport_u.divide(@floatFromInt(self.img_width));
-        self.pixel_delta_v = viewport_v.divide(@floatFromInt(self.img_height));
+        self.pixel_delta_u = viewport_u / vector.splat3(@floatFromInt(self.img_width));
+        self.pixel_delta_v = viewport_v / vector.splat3(@floatFromInt(self.img_height));
 
         // Calculate the location of the upper left pixel.
-        const viewport_upper_left = self.center.minus(self.w.multiply(self.focus_dist)).minus(viewport_u.divide(2)).minus(viewport_v.divide(2));
-        self.pixel00_loc = viewport_upper_left.plus(self.pixel_delta_u.plus(self.pixel_delta_v).multiply(0.5));
+        const viewport_upper_left = self.center - (self.w * vector.splat3(self.focus_dist)) - (viewport_u / vector.splat3(2)) - (viewport_v / vector.splat3(2));
+        self.pixel00_loc = viewport_upper_left + self.pixel_delta_u + self.pixel_delta_v * vector.splat3(0.5);
 
         // Calculate the camera defocus disk basis vectors.
         const defocus_radius = self.focus_dist * std.math.tan(degreesToRadians(self.defocus_angle / 2));
-        self.defocus_disk_u = self.u.multiply(defocus_radius);
-        self.defocus_disk_v = self.v.multiply(defocus_radius);
+        self.defocus_disk_u = self.u * vector.splat3(defocus_radius);
+        self.defocus_disk_v = self.v * vector.splat3(defocus_radius);
     }
 
     fn rayColor(self: *Camera, ray: Ray, world: Hittable, depth: u32) Color {
         if (depth <= 0)
-            return Color.init(0, 0, 0);
+            return Color{ 0, 0, 0 };
 
         const opt_hit_record = world.hit(ray, Interval{ .min = 0.001, .max = std.math.inf(f64) });
 
@@ -324,42 +323,40 @@ const Camera = struct {
             var scattered: Ray = undefined;
 
             if (hit_record.mat.scatter(ray, hit_record, &attenuation, &scattered)) {
-                return attenuation.multiplyByVec3(self.rayColor(scattered, world, depth - 1));
+                return attenuation * self.rayColor(scattered, world, depth - 1);
             }
 
-            return Color.init(0, 0, 0);
+            return Color{ 0, 0, 0 };
         }
 
-        const unit_direction = vecs.unitVector(ray.direction);
-        const a = 0.5 * (unit_direction.y + 1.0);
+        const unit_direction = vector.unitVector(ray.direction);
+        const a = 0.5 * (unit_direction[1] + 1.0);
 
-        // const vec = Vector3{ 1, 1, 1 } * @as(Vector3, @splat(1.0 - a)) + Vector3{ 0.5, 0.7, 1.0 } * @as(Vector3, @splat(a));
-        // return Color.init(vec[0], vec[1], vec[2]);
-        return Color.init(1.0, 1.0, 1.0).multiply(1.0 - a).plus(Color.init(0.5, 0.7, 1.0).multiply(a));
+        return Color{ 1, 1, 1 } * vector.splat3(1.0 - a) + Color{ 0.5, 0.7, 1.0 } * vector.splat3(a);
     }
 
     fn getRay(self: *Camera, x: u64, y: u64) Ray {
         // Get a randomly-sampled camera ray for the pixel at location x,y, originating from
         // the camera defocus disk.
-        const pixel_center = self.pixel00_loc.plus(self.pixel_delta_u.multiply(@floatFromInt(x))).plus(self.pixel_delta_v.multiply(@floatFromInt(y)));
-        const pixel_sample = pixel_center.plus(self.pixelSampleSquare());
+        const pixel_center = self.pixel00_loc + self.pixel_delta_u * vector.splat3(@floatFromInt(x)) + self.pixel_delta_v * vector.splat3(@floatFromInt(y));
+        const pixel_sample = pixel_center + self.pixelSampleSquare();
 
         const ray_origin = if (self.defocus_angle <= 0) self.center else self.defocusDiskSample();
-        const ray_direction = pixel_sample.minus(ray_origin);
+        const ray_direction = pixel_sample - ray_origin;
 
         return Ray.init(ray_origin, ray_direction);
     }
 
-    fn pixelSampleSquare(self: *Camera) Vec3 {
+    fn pixelSampleSquare(self: *Camera) Vector3 {
         const px = -0.5 * rand.randomFloat();
         const py = -0.5 * rand.randomFloat();
 
-        return self.pixel_delta_u.multiply(px).plus(self.pixel_delta_v.multiply(py));
+        return self.pixel_delta_u * vector.splat3(px) + self.pixel_delta_v * vector.splat3(py);
     }
 
-    fn defocusDiskSample(self: *Camera) Vec3 {
-        const p = vecs.randomInUnitDisk();
-        return self.center.plus(self.defocus_disk_u.multiply(p.x)).plus(self.defocus_disk_v.multiply(p.y));
+    fn defocusDiskSample(self: *Camera) Vector3 {
+        const p = vector.randomInUnitDisk();
+        return self.center + self.defocus_disk_u * vector.splat3(p[0]) + self.defocus_disk_v * vector.splat3(p[1]);
     }
 };
 
@@ -373,9 +370,7 @@ const SharedStateImageWriter = struct {
     }
 
     pub fn writeColor(self: SharedStateImageWriter, x: u64, y: u64, color: Color, number_of_samples: u64) !void {
-        self.buffer[x][y] = ColorAndSamples{
-            .color = self.buffer[x][y].color.plus(color),
-            .number_of_samples = number_of_samples,
-        };
+        self.buffer[x][y] += vector.Vector4{ color[0], color[1], color[2], 0 };
+        self.buffer[x][y][3] = @floatFromInt(number_of_samples);
     }
 };

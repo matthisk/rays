@@ -60,13 +60,13 @@ pub fn initialize(w: i32, h: i32, image_buffer: [][]ColorAndSamples) !void {
     c.SDL_DestroyWindow(window);
     c.SDL_Quit();
 
-    // TODO this should also kill the process.
+    // std.os.kill(std.os.darwin.getpid(), 9);
 }
 
 fn renderImageBuffer(w: i32, h: i32, surface: *c.SDL_Surface, image_buffer: [][]ColorAndSamples) void {
     for (0..@intCast(w)) |x| {
         for (0..@intCast(h)) |y| {
-            setPixel(surface, @intCast(x), @intCast(y), colors.toBgra(colors.toGamma(image_buffer[x][y].color, 1.0 / @as(f64, @floatFromInt(image_buffer[x][y].number_of_samples)))));
+            setPixel(surface, @intCast(x), @intCast(y), colors.toBgra(colors.toGamma(image_buffer[x][y])));
         }
     }
 }

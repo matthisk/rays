@@ -12,11 +12,11 @@ pub fn printPpmToStdout(buffer: [][]ColorAndSamples) !void {
 
     for (0..img_height) |y| {
         for (0..img_width) |x| {
-            const color = colors.toGamma(buffer[x][y].color, 1.0 / @as(f32, @floatFromInt(buffer[x][y].number_of_samples)));
+            const color = colors.toGamma(buffer[x][y]);
             try stdout.print("{d} {d} {d}\t", .{
-                @floor(color.x * 255.999),
-                @floor(color.y * 255.999),
-                @floor(color.z * 255.999),
+                @floor(color[0] * 255.999),
+                @floor(color[1] * 255.999),
+                @floor(color[2] * 255.999),
             });
         }
     }

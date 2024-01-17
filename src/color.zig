@@ -1,27 +1,25 @@
 const std = @import("std");
-const vecs = @import("vec3.zig");
+const vector = @import("vector.zig");
 const rand = @import("rand.zig");
 const Interval = @import("interval.zig");
 
-pub const Color = vecs.Vec3;
-
-pub const ColorAndSamples = struct {
-    color: Color,
-    number_of_samples: u64,
-};
+pub const Color = vector.Vector3;
+pub const ColorAndSamples = vector.Vector4;
 
 pub fn toBgra(color: Color) u32 {
-    const r: u32 = @intFromFloat(color.x * 255.999);
-    const g: u32 = @intFromFloat(color.y * 255.999);
-    const b: u32 = @intFromFloat(color.z * 255.999);
+    const r: u32 = @intFromFloat(color[0] * 255.999);
+    const g: u32 = @intFromFloat(color[1] * 255.999);
+    const b: u32 = @intFromFloat(color[2] * 255.999);
 
     return 255 << 24 | r << 16 | g << 8 | b;
 }
 
-pub fn toGamma(color: Color, scale: f64) Color {
-    var r = color.x;
-    var g = color.y;
-    var b = color.z;
+pub fn toGamma(color: vector.Vector4) Color {
+    const scale = 1.0 / color[3];
+
+    var r = color[0];
+    var g = color[1];
+    var b = color[2];
 
     r *= scale;
     g *= scale;
@@ -33,7 +31,7 @@ pub fn toGamma(color: Color, scale: f64) Color {
 
     const intensity = Interval{ .min = 0.0, .max = 0.999 };
 
-    return Color.init(intensity.clamp(r), intensity.clamp(g), intensity.clamp(b));
+    return Color{ intensity.clamp(r), intensity.clamp(g), intensity.clamp(b) };
 }
 
 pub fn linearToGamma(linear_component: f64) f64 {

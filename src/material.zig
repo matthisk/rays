@@ -2,10 +2,8 @@ const std = @import("std");
 const Color = @import("color.zig").Color;
 const Ray = @import("ray.zig").Ray;
 const HitRecord = @import("main.zig").HitRecord;
-const vecs = @import("vec3.zig");
+const vector = @import("vector.zig");
 const rand = @import("rand.zig");
-
-const Vec3 = vecs.Vec3;
 
 pub const Material = union(enum) {
     lambertian: Lambertian,
@@ -23,9 +21,9 @@ pub const Lambertian = struct {
     albedo: Color,
 
     pub fn scatter(self: Lambertian, _: Ray, record: HitRecord, attenuation: *Color, scattered: *Ray) bool {
-        var scatter_direction = record.normal.plus(vecs.randomUnitVector());
+        var scatter_direction = record.normal + vector.randomUnitVector();
 
-        if (scatter_direction.nearZero()) {
+        if (vector.nearZero(scatter_direction)) {
             scatter_direction = record.normal;
         }
 
@@ -48,9 +46,9 @@ pub const Metal = struct {
     }
 
     pub fn scatter(self: Metal, r_in: Ray, record: HitRecord, attenuation: *Color, scattered: *Ray) bool {
-        const reflected = vecs.reflect(vecs.unitVector(r_in.direction), record.normal);
+        const reflected = vector.reflect(vector.unitVector(r_in.direction), record.normal);
 
-        scattered.* = Ray{ .origin = record.p, .direction = reflected.plus(vecs.randomUnitVector().multiply(self.fuzz)) };
+        scattered.* = Ray{ .origin = record.p, .direction = reflected + vector.randomUnitVector() * vector.splat3(self.fuzz) };
         attenuation.* = self.albedo;
 
         return true;
@@ -61,20 +59,20 @@ pub const Dielectric = struct {
     index_of_refraction: f64,
 
     pub fn scatter(self: Dielectric, r_in: Ray, record: HitRecord, attenuation: *Color, scattered: *Ray) bool {
-        attenuation.* = Color.init(1.0, 1.0, 1.0);
+        attenuation.* = Color{ 1.0, 1.0, 1.0 };
         const refraction_ratio = if (record.front_face) (1.0 / self.index_of_refraction) else self.index_of_refraction;
 
-        const unit_direction = vecs.unitVector(r_in.direction);
-        const cos_theta = @min(unit_direction.multiply(-1).dot(record.normal), 1.0);
+        const unit_direction = vector.unitVector(r_in.direction);
+        const cos_theta = @min(vector.dot(-unit_direction, record.normal), 1.0);
         const sin_theta = std.math.sqrt(1.0 - cos_theta * cos_theta);
 
         const cannot_refract = refraction_ratio * sin_theta > 1.0;
-        var direction: Vec3 = undefined;
+        var direction: vector.Vector3 = undefined;
 
         if (cannot_refract or reflectance(cos_theta, refraction_ratio) > rand.randomFloat()) {
-            direction = vecs.reflect(unit_direction, record.normal);
+            direction = vector.reflect(unit_direction, record.normal);
         } else {
-            direction = vecs.refract(unit_direction, record.normal, refraction_ratio);
+            direction = vector.refract(unit_direction, record.normal, refraction_ratio);
         }
 
         scattered.* = Ray{ .origin = record.p, .direction = direction };
