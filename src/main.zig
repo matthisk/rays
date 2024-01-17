@@ -99,7 +99,6 @@ pub fn main() !void {
     for (threads.items) |thread| {
         thread.join();
     }
-
     // try printPpmToStdout(image_buffer);
 }
 
@@ -144,12 +143,12 @@ fn generateWorld(objects: *ObjectList) !Hittable {
         }
     }
 
-    const sphere_material = Material{ .dielectric = Dielectric{ .index_of_refraction = 1.5 } };
-    try objects.append(Hittable{ .sphere = Sphere{ .center = Vector3{ 0, 1.5, 0 }, .radius = 1.5, .mat = sphere_material } });
-    try objects.append(Hittable{ .sphere = Sphere{ .center = Vector3{ 0, 1.5, 0 }, .radius = -1.3, .mat = sphere_material } });
-
-    const sphere_material_2 = Material{ .lambertian = Lambertian{ .albedo = vector.random() * vector.random() } };
-    try objects.append(Hittable{ .sphere = Sphere{ .center = Vector3{ 1, 1.5, 1.5 }, .radius = 1.5, .mat = sphere_material_2 } });
+    const sphere_material_1 = Material{ .dielectric = Dielectric{ .index_of_refraction = 1.5 } };
+    try objects.append(Hittable{ .sphere = Sphere{ .center = Vector3{ 0, 1, 0 }, .radius = 1, .mat = sphere_material_1 } });
+    const sphere_material_2 = Material{ .lambertian = Lambertian{ .albedo = Vector3{ 0.4, 0.2, 0.1 } } };
+    try objects.append(Hittable{ .sphere = Sphere{ .center = Vector3{ -4, 1, 0 }, .radius = 1, .mat = sphere_material_2 } });
+    const sphere_material_3 = Material{ .metal = Metal{ .albedo = Vector3{ 0.7, 0.6, 0.5 }, .fuzz = 0.0 } };
+    try objects.append(Hittable{ .sphere = Sphere{ .center = Vector3{ 4, 1, 0 }, .radius = 1, .mat = sphere_material_3 } });
 
     return Hittable{ .list = HittableList{ .objects = objects.items } };
 }
