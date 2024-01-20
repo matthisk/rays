@@ -1,7 +1,7 @@
 const std = @import("std");
 const Color = @import("color.zig").Color;
 const Ray = @import("ray.zig").Ray;
-const HitRecord = @import("main.zig").HitRecord;
+const HitRecord = @import("objects.zig").HitRecord;
 const vector = @import("vector.zig");
 const rand = @import("rand.zig");
 
@@ -19,6 +19,10 @@ pub const Material = union(enum) {
 
 pub const Lambertian = struct {
     albedo: Color,
+
+    pub fn init(albedo: Color) Material {
+        return Material{ .lambertian = Lambertian{ .albedo = albedo } };
+    }
 
     pub fn scatter(self: Lambertian, _: Ray, record: HitRecord, attenuation: *Color, scattered: *Ray) bool {
         var scatter_direction = record.normal + vector.randomUnitVector();

@@ -5,6 +5,7 @@ const c = @cImport({
 const vector = @import("vector.zig");
 const rays = @import("ray.zig");
 const colors = @import("color.zig");
+const Aabb = @import("aabb.zig");
 const rand = @import("rand.zig");
 const window = @import("window.zig");
 const Interval = @import("interval.zig");
@@ -12,6 +13,11 @@ const Material = @import("material.zig").Material;
 const Dielectric = @import("material.zig").Dielectric;
 const Lambertian = @import("material.zig").Lambertian;
 const Metal = @import("material.zig").Metal;
+const Hittable = @import("objects.zig").Hittable;
+const HittableList = @import("objects.zig").HittableList;
+const HitRecord = @import("objects.zig").HitRecord;
+const Sphere = @import("objects.zig").Sphere;
+const BvhTree = @import("objects.zig").BvhTree;
 const printPpmToStdout = @import("stdout.zig").printPpmToStdout;
 
 const degreesToRadians = @import("math.zig").degreesToRadians;
@@ -28,8 +34,8 @@ var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 var arena = std.heap.ArenaAllocator.init(gpa.allocator());
 var allocator = arena.allocator();
 
-const image_width: u32 = 400;
-const image_height: u32 = 225;
+const image_width: u32 = 1920;
+const image_height: u32 = 1080;
 const aspect_ratio = 16.0 / 9.0;
 
 const number_of_threads = 8;
@@ -62,7 +68,7 @@ pub fn main() !void {
         .img_height = image_height,
 
         // Render config.
-        .samples_per_pixel = 100,
+        .samples_per_pixel = 500,
         .max_depth = 16,
 
         // View.
@@ -116,7 +122,7 @@ pub fn renderFn(context: Task) !void {
 fn generateWorld(objects: *ObjectList) !Hittable {
     const material_ground = Material{ .lambertian = Lambertian{ .albedo = Color{ 0.5, 0.5, 0.5 } } };
 
-    try objects.append(Hittable{ .sphere = Sphere{ .center = Vector3{ 0, -1000, 0 }, .radius = 1000, .mat = material_ground } });
+    try objects.append(Sphere.init(Vector3{ 0, -1000, 0 }, 1000, material_ground));
 
     for (0..22) |k| {
         for (0..22) |l| {
@@ -138,99 +144,22 @@ fn generateWorld(objects: *ObjectList) !Hittable {
                     sphere_material = Material{ .dielectric = Dielectric{ .index_of_refraction = 1.5 } };
                 }
 
-                try objects.append(Hittable{ .sphere = Sphere{ .center = center, .radius = 0.2, .mat = sphere_material } });
+                try objects.append(Sphere.init(center, 0.2, sphere_material));
             }
         }
     }
 
     const sphere_material_1 = Material{ .dielectric = Dielectric{ .index_of_refraction = 1.5 } };
-    try objects.append(Hittable{ .sphere = Sphere{ .center = Vector3{ 0, 1, 0 }, .radius = 1, .mat = sphere_material_1 } });
+    try objects.append(Sphere.init(Vector3{ 0, 1, 0 }, 1, sphere_material_1));
     const sphere_material_2 = Material{ .lambertian = Lambertian{ .albedo = Vector3{ 0.4, 0.2, 0.1 } } };
-    try objects.append(Hittable{ .sphere = Sphere{ .center = Vector3{ -4, 1, 0 }, .radius = 1, .mat = sphere_material_2 } });
+    try objects.append(Sphere.init(Vector3{ -4, 1, 0 }, 1, sphere_material_2));
     const sphere_material_3 = Material{ .metal = Metal{ .albedo = Vector3{ 0.7, 0.6, 0.5 }, .fuzz = 0.0 } };
-    try objects.append(Hittable{ .sphere = Sphere{ .center = Vector3{ 4, 1, 0 }, .radius = 1, .mat = sphere_material_3 } });
+    try objects.append(Sphere.init(Vector3{ 4, 1, 0 }, 1, sphere_material_3));
 
-    return Hittable{ .list = HittableList{ .objects = objects.items } };
+    const tree = try BvhTree.init(allocator, objects.items, 0, objects.items.len);
+
+    return Hittable{ .tree = tree };
 }
-
-pub const HitRecord = struct {
-    p: Vector3 = Vector3{ 0, 0, 0 },
-    normal: Vector3 = Vector3{ 0, 0, 0 },
-    t: f64 = 0,
-    front_face: bool = false,
-    mat: Material = undefined,
-
-    // Sets the hit record normal
-    // NOTE: the parameter `outward_normal` is assumed to have unit length.
-    pub fn setFaceNormal(self: *HitRecord, ray: Ray, outward_normal: Vector3) void {
-        self.front_face = vector.dot(ray.direction, outward_normal) < 0;
-        self.normal = if (self.front_face) outward_normal else -outward_normal;
-    }
-};
-
-const Hittable = union(enum) {
-    sphere: Sphere,
-    list: HittableList,
-
-    pub fn hit(self: Hittable, ray: Ray, ray_t: Interval) ?HitRecord {
-        return switch (self) {
-            inline else => |case| case.hit(ray, ray_t),
-        };
-    }
-};
-
-const Sphere = struct {
-    center: Vector3,
-    radius: f64,
-    mat: Material,
-
-    pub fn hit(self: Sphere, ray: Ray, ray_t: Interval) ?HitRecord {
-        const oc = ray.origin - self.center;
-        const a = vector.lengthSquared(ray.direction);
-        const half_b = vector.dot(oc, ray.direction);
-        const cc = vector.lengthSquared(oc) - self.radius * self.radius;
-        const discriminant = half_b * half_b - a * cc;
-        if (discriminant < 0) return null;
-        const sqrtd = std.math.sqrt(discriminant);
-
-        var root = (-half_b - sqrtd) / a;
-
-        if (!ray_t.surrounds(root)) {
-            root = (-half_b + sqrtd) / a;
-            if (!ray_t.surrounds(root)) {
-                return null;
-            }
-        }
-
-        var hit_record = HitRecord{};
-        hit_record.t = root;
-        hit_record.p = ray.at(hit_record.t);
-        hit_record.mat = self.mat;
-        const outward_normal = (hit_record.p - self.center) / vector.splat3(self.radius);
-        hit_record.setFaceNormal(ray, outward_normal);
-
-        return hit_record;
-    }
-};
-
-const HittableList = struct {
-    objects: []const Hittable,
-
-    pub fn hit(self: HittableList, ray: Ray, ray_t: Interval) ?HitRecord {
-        var latest: ?HitRecord = null;
-        var closest_so_far = ray_t.max;
-
-        for (self.objects) |object| {
-            const hit_record = object.hit(ray, Interval{ .min = ray_t.min, .max = closest_so_far });
-            if (hit_record) |hr| {
-                closest_so_far = hr.t;
-                latest = hr;
-            }
-        }
-
-        return latest;
-    }
-};
 
 const Camera = struct {
     aspect_ratio: f64 = 1.0, // Ratio of image width over height
