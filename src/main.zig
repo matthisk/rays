@@ -34,8 +34,8 @@ var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 var arena = std.heap.ArenaAllocator.init(gpa.allocator());
 var allocator = arena.allocator();
 
-const image_width: u32 = 1920;
-const image_height: u32 = 1080;
+const image_width: u32 = 400;
+const image_height: u32 = 225;
 const aspect_ratio = 16.0 / 9.0;
 
 const number_of_threads = 8;
@@ -68,7 +68,7 @@ pub fn main() !void {
         .img_height = image_height,
 
         // Render config.
-        .samples_per_pixel = 500,
+        .samples_per_pixel = 100,
         .max_depth = 16,
 
         // View.
@@ -100,12 +100,13 @@ pub fn main() !void {
         try threads.append(thread);
     }
 
-    try window.initialize(image_width, image_height, image_buffer);
+    // try window.initialize(image_width, image_height, image_buffer);
 
     for (threads.items) |thread| {
         thread.join();
     }
-    // try printPpmToStdout(image_buffer);
+
+    try printPpmToStdout(image_buffer);
 }
 
 const Task = struct {
@@ -144,7 +145,7 @@ fn generateWorld(objects: *ObjectList) !Hittable {
                     sphere_material = Material{ .dielectric = Dielectric{ .index_of_refraction = 1.5 } };
                 }
 
-                try objects.append(Sphere.init(center, 0.2, sphere_material));
+                try objects.append(Sphere.init(center, rand.randomBetween(0.1, 0.2), sphere_material));
             }
         }
     }
