@@ -34,8 +34,8 @@ var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 var arena = std.heap.ArenaAllocator.init(gpa.allocator());
 var allocator = arena.allocator();
 
-const image_width: u32 = 400;
-const image_height: u32 = 225;
+const image_width: u32 = 800;
+const image_height: u32 = 450;
 const aspect_ratio = 16.0 / 9.0;
 
 const number_of_threads = 8;
@@ -68,7 +68,7 @@ pub fn main() !void {
         .img_height = image_height,
 
         // Render config.
-        .samples_per_pixel = 100,
+        .samples_per_pixel = 500,
         .max_depth = 16,
 
         // View.
@@ -131,21 +131,22 @@ fn generateWorld(objects: *ObjectList) !Hittable {
             const b: f64 = @as(f64, @floatFromInt(l)) - 11;
 
             const choose_mat = rand.randomFloat();
-            const center = Vector3{ a + 0.9 * rand.randomFloat(), 0.2, b + 0.9 * rand.randomFloat() };
+            const radius = rand.randomBetween(0.1, 0.3);
+            const center = Vector3{ a + 0.9 * rand.randomFloat(), radius, b + 0.9 * rand.randomFloat() };
 
-            if (vector.length(center - Vector3{ 4, 0.2, 0 }) > 0.9) {
+            if (vector.length(center - Vector3{ 4, radius, 0 }) > 0.9) {
                 var sphere_material: Material = undefined;
 
                 if (choose_mat < 0.8) {
-                    sphere_material = Material{ .lambertian = Lambertian{ .albedo = vector.random() * vector.random() } };
+                    sphere_material = Material{ .lambertian = Lambertian{ .albedo = colors.randomColorFromPalette() } };
                 } else if (choose_mat < 0.95) {
                     const fuzz = rand.randomBetween(0.0, 0.5);
-                    sphere_material = Material{ .metal = Metal{ .albedo = vector.random() * vector.randomBetween(0.5, 1), .fuzz = fuzz } };
+                    sphere_material = Material{ .metal = Metal{ .albedo = colors.randomColorFromPalette(), .fuzz = fuzz } };
                 } else {
                     sphere_material = Material{ .dielectric = Dielectric{ .index_of_refraction = 1.5 } };
                 }
 
-                try objects.append(Sphere.init(center, rand.randomBetween(0.1, 0.2), sphere_material));
+                try objects.append(Sphere.init(center, radius, sphere_material));
             }
         }
     }
