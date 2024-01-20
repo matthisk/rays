@@ -255,15 +255,10 @@ pub const BvhNode = struct {
             return null;
         }
 
-        if (self.left.?.hit(ray, ray_t)) |hit_record| {
-            return hit_record;
-        }
+        const hit_record_l = self.left.?.hit(ray, ray_t);
+        const hit_record_r = self.right.?.hit(ray, Interval{ .min = ray_t.min, .max = if (hit_record_l != null) hit_record_l.?.t else ray_t.max });
 
-        if (self.right.?.hit(ray, ray_t)) |hit_record| {
-            return hit_record;
-        }
-
-        return null;
+        return hit_record_r orelse hit_record_l orelse null;
     }
 };
 
