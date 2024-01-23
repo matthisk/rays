@@ -34,8 +34,8 @@ var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 var arena = std.heap.ArenaAllocator.init(gpa.allocator());
 var allocator = arena.allocator();
 
-const image_width: u32 = 800;
-const image_height: u32 = 450;
+const image_width: u32 = 1920;
+const image_height: u32 = 1080;
 const aspect_ratio = 16.0 / 9.0;
 
 const number_of_threads = 8;
@@ -102,11 +102,15 @@ pub fn main() !void {
 
     // try window.initialize(image_width, image_height, image_buffer);
 
+    var timer = try std.time.Timer.start();
+
     for (threads.items) |thread| {
         thread.join();
     }
 
     try printPpmToStdout(image_buffer);
+
+    std.debug.print("finished render in {d}ms", .{timer.read() / 1000_000});
 }
 
 const Task = struct {
@@ -188,7 +192,7 @@ const Camera = struct {
     v: Vector3 = undefined,
     w: Vector3 = undefined,
 
-    writer: SharedStateImageWriter = undefined,
+    writer: ImageWriter = undefined,
 
     pub fn render(self: *Camera, context: Task) std.fs.File.Writer.Error!void {
         try self.initialize();
@@ -259,6 +263,8 @@ const Camera = struct {
             return Color{ 0, 0, 0 };
         }
 
+        // Sky model.
+        // This section calculates the color of a ray in case it doesn't hit any object.
         const unit_direction = vector.unitVector(ray.direction);
         const a = 0.5 * (unit_direction[1] + 1.0);
 
@@ -290,13 +296,39 @@ const Camera = struct {
     }
 };
 
+const ImageWriter = union(enum) {
+    shared_state: SharedStateImageWriter,
+    sink: SinkImageWriter,
+
+    pub fn writeColor(self: ImageWriter, x: u64, y: u64, color: Color, number_of_samples: u64) !void {
+        switch (self) {
+            inline else => |case| try case.writeColor(x, y, color, number_of_samples),
+        }
+    }
+};
+
+const SinkImageWriter = struct {
+    pub fn init() ImageWriter {
+        return ImageWriter{ .sink = .{} };
+    }
+
+    pub fn writeColor(self: SinkImageWriter, x: u64, y: u64, color: Color, number_of_samples: u64) !void {
+        // ignore.
+        _ = self;
+        _ = x;
+        _ = y;
+        _ = color;
+        _ = number_of_samples;
+    }
+};
+
 const SharedStateImageWriter = struct {
     buffer: [][]ColorAndSamples,
 
-    pub fn init(buffer: [][]ColorAndSamples) SharedStateImageWriter {
-        return .{
+    pub fn init(buffer: [][]ColorAndSamples) ImageWriter {
+        return ImageWriter{ .shared_state = .{
             .buffer = buffer,
-        };
+        } };
     }
 
     pub fn writeColor(self: SharedStateImageWriter, x: u64, y: u64, color: Color, number_of_samples: u64) !void {

@@ -180,7 +180,8 @@ pub const BvhTree = struct {
                 }
             },
             else => {
-                switch (rand.randomIntBetween(0, 3)) {
+                const axis = rand.randomIntBetween(0, 3);
+                switch (axis) {
                     0 => std.sort.heap(Hittable, src_objects[start..end], {}, boxCompareX),
                     1 => std.sort.heap(Hittable, src_objects[start..end], {}, boxCompareY),
                     2 => std.sort.heap(Hittable, src_objects[start..end], {}, boxCompareZ),
@@ -231,6 +232,7 @@ pub const BvhTree = struct {
 };
 
 pub const BvhNode = struct {
+    id: usize = 0,
     leaf: ?*const Hittable = null,
     left: ?*const BvhNode = null,
     right: ?*const BvhNode = null,
@@ -260,24 +262,61 @@ pub const BvhNode = struct {
 
         return hit_record_r orelse hit_record_l orelse null;
     }
+
+    pub fn print(self: *const BvhNode, allocator: std.mem.Allocator) !void {
+        const Stack = std.ArrayList(*const BvhNode);
+
+        var stack = Stack.init(allocator);
+        defer stack.deinit();
+
+        try stack.append(self);
+        var level_size: usize = 0;
+        var levels: usize = 0;
+
+        while (stack.items.len > 0) {
+            levels += 1;
+            level_size = stack.items.len;
+            std.debug.print("level_size = {d}\n", .{level_size});
+
+            while (level_size > 0) : (level_size -= 1) {
+                var node = stack.pop();
+
+                std.debug.print("idx = {d} ", .{node.id});
+                node.bbox.print();
+
+                if (node.left) |n| {
+                    try stack.insert(0, n);
+                }
+                if (node.right) |n| {
+                    try stack.insert(0, n);
+                }
+            }
+            std.debug.print("\n", .{});
+        }
+
+        std.debug.print("levels = {d}\n", .{levels});
+    }
 };
 
 test "bvh tree" {
-    const sphere_1 = Sphere.init(Vector3{ 10, 10, 10 }, 5, Lambertian.init(Vector3{ 0, 0, 0 }));
+    const sphere_1 = Sphere.init(Vector3{ 40, 40, 40 }, 5, Lambertian.init(Vector3{ 0, 0, 0 }));
     const sphere_2 = Sphere.init(Vector3{ 20, 20, 20 }, 5, Lambertian.init(Vector3{ 0, 0, 0 }));
-    const sphere_3 = Sphere.init(Vector3{ 30, 30, 30 }, 5, Lambertian.init(Vector3{ 0, 0, 0 }));
-    const sphere_4 = Sphere.init(Vector3{ 40, 40, 40 }, 5, Lambertian.init(Vector3{ 0, 0, 0 }));
+    const sphere_3 = Sphere.init(Vector3{ 10, 10, 10 }, 5, Lambertian.init(Vector3{ 0, 0, 0 }));
+    const sphere_4 = Sphere.init(Vector3{ 30, 30, 30 }, 5, Lambertian.init(Vector3{ 0, 0, 0 }));
     var objects = [_]Hittable{ sphere_1, sphere_2, sphere_3, sphere_4 };
 
     const tree = try BvhTree.init(std.testing.allocator, objects[0..], 0, 4);
     defer tree.deinit();
 
+    // level 1
     try std.testing.expectEqual(Aabb.init(Vector3{ 5, 5, 5 }, Vector3{ 25, 25, 25 }), tree.root.left.?.bbox);
     try std.testing.expectEqual(Aabb.init(Vector3{ 25, 25, 25 }, Vector3{ 45, 45, 45 }), tree.root.right.?.bbox);
 
+    // left level 2
     try std.testing.expectEqual(Aabb.init(Vector3{ 5, 5, 5 }, Vector3{ 15, 15, 15 }), tree.root.left.?.left.?.bbox);
     try std.testing.expectEqual(Aabb.init(Vector3{ 15, 15, 15 }, Vector3{ 25, 25, 25 }), tree.root.left.?.right.?.bbox);
 
+    // right level 2
     try std.testing.expectEqual(Aabb.init(Vector3{ 25, 25, 25 }, Vector3{ 35, 35, 35 }), tree.root.right.?.left.?.bbox);
     try std.testing.expectEqual(Aabb.init(Vector3{ 35, 35, 35 }, Vector3{ 45, 45, 45 }), tree.root.right.?.right.?.bbox);
 }
@@ -303,4 +342,51 @@ test "big bvh tree" {
     }
 
     try std.testing.expectEqual(@as(usize, std.math.log2(len) + 1), depth);
+}
+
+test "bvh tree benchmark" {
+    const len = 10_000;
+    const num_rays = 10_000;
+
+    var objects = [_]Hittable{undefined} ** len;
+    for (0..len) |i| {
+        const center: f64 = rand.randomBetween(0, 10);
+        const zaxis: f64 = 10;
+        const radius: f64 = rand.randomBetween(0.2, 0.25);
+        objects[i] = Sphere.init(Vector3{ center, center, zaxis }, radius, Lambertian.init(Vector3{ 0, 0, 0 }));
+    }
+
+    const list = HittableList.init(objects[0..]);
+    const tree = try BvhTree.init(std.testing.allocator, objects[0..], 0, len);
+    defer tree.deinit();
+
+    var timer = try std.time.Timer.start();
+    var hits: usize = 0;
+
+    for (0..num_rays) |_| {
+        const hit = tree.hit(Ray.init(Vector3{ 0, 0, 0 }, vector.random()), Interval{ .min = 0.001, .max = std.math.inf(f64) });
+        if (hit) |record| {
+            _ = record;
+            hits += 1;
+        }
+    }
+
+    const timing = timer.read();
+
+    std.debug.print("\nbvh timing = {d}ms hits = {d}\n", .{ timing / 1_000_000, hits });
+
+    timer.reset();
+    hits = 0;
+
+    for (0..num_rays) |_| {
+        const hit = list.hit(Ray.init(Vector3{ 0, 0, 0 }, vector.random()), Interval{ .min = 0.001, .max = std.math.inf(f64) });
+        if (hit) |record| {
+            _ = record;
+            hits += 1;
+        }
+    }
+
+    const timing_list = timer.read();
+
+    std.debug.print("list timing = {d}ms hits = {d}\n", .{ timing_list / 1_000_000, hits });
 }

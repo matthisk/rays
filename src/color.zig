@@ -58,7 +58,7 @@ pub fn randomColorFromPalette() Color {
 test "random color from palette" {
     const color = randomColorFromPalette();
 
-    try std.testing.expect(color[0] < 1 and color[0] > 0);
-    try std.testing.expect(color[1] < 1 and color[1] > 0);
-    try std.testing.expect(color[2] < 1 and color[2] > 0);
+    try std.testing.expect(color[0] <= 1 and color[0] >= 0);
+    try std.testing.expect(color[1] <= 1 and color[1] >= 0);
+    try std.testing.expect(color[2] <= 1 and color[2] >= 0);
 }

@@ -55,8 +55,8 @@ pub fn hit(self: Aabb, ray: Ray, ray_t: Interval) bool {
             t0 = tmp;
         }
 
-        if (t0 > ray_t.min) ray_t_min = t0;
-        if (t1 < ray_t.max) ray_t_max = t1;
+        if (t0 > ray_t_min) ray_t_min = t0;
+        if (t1 < ray_t_max) ray_t_max = t1;
 
         if (ray_t_max <= ray_t_min) {
             return false;
@@ -66,11 +66,22 @@ pub fn hit(self: Aabb, ray: Ray, ray_t: Interval) bool {
     return true;
 }
 
+pub fn print(self: Aabb) void {
+    std.debug.print("({d:.2},{d:.2},{d:.2}) ({d:.2},{d:.2},{d:.2})\n", .{ self.x.min, self.y.min, self.z.min, self.x.max, self.y.max, self.z.max });
+}
+
 test "hit" {
     const aabb = Aabb.init(Vector3{ 1, 1, 0 }, Vector3{ 6, 6, 1 });
     const ray = Ray.init(Vector3{ 0, 0, 0 }, Vector3{ 3, 5, 1 });
 
     try std.testing.expectEqual(true, aabb.hit(ray, Interval{ .min = -std.math.inf(f64), .max = std.math.inf(f64) }));
+}
+
+test "detailed hit" {
+    const ray = Ray.init(Vector3{ 0.00, 0.00, 0.00 }, Vector3{ 0.09, 0.49, 0.76 });
+    const aabb = Aabb.init(Vector3{ 8.50, 8.50, 0.78 }, Vector3{ 9.42, 9.42, 1.22 });
+
+    try std.testing.expectEqual(false, aabb.hit(ray, Interval{ .min = 0, .max = std.math.inf(f64) }));
 }
 
 test "hit negative direction" {
