@@ -19,6 +19,8 @@ const HitRecord = @import("objects.zig").HitRecord;
 const Sphere = @import("objects.zig").Sphere;
 const BvhTree = @import("objects.zig").BvhTree;
 const printPpmToStdout = @import("stdout.zig").printPpmToStdout;
+const CheckerTexture = @import("texture.zig").CheckerTexture;
+const image = @import("image.zig");
 
 const degreesToRadians = @import("math.zig").degreesToRadians;
 const linearToGamma = @import("math.zig").linearToGamma;
@@ -34,9 +36,8 @@ var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 var arena = std.heap.ArenaAllocator.init(gpa.allocator());
 var allocator = arena.allocator();
 
-const image_width: u32 = 1920;
-const image_height: u32 = 1080;
-const aspect_ratio = 16.0 / 9.0;
+const image_width: u32 = 1024;
+const image_height: u32 = 576;
 
 const number_of_threads = 8;
 
@@ -57,9 +58,6 @@ pub fn main() !void {
     // Allocate heap.
     var objects = ObjectList.init(allocator);
     defer objects.deinit();
-
-    // Generate a random world.
-    const world = try generateWorld(&objects);
 
     // Initialize camera and render frame.
     var camera = Camera{
@@ -85,6 +83,9 @@ pub fn main() !void {
         .writer = SharedStateImageWriter.init(image_buffer),
     };
 
+    // Generate a random world.
+    const world = try scene(1, &camera, &objects);
+
     var threads = std.ArrayList(std.Thread).init(allocator);
 
     for (0..number_of_threads) |thread_idx| {
@@ -100,17 +101,13 @@ pub fn main() !void {
         try threads.append(thread);
     }
 
-    // try window.initialize(image_width, image_height, image_buffer);
-
-    var timer = try std.time.Timer.start();
+    try window.initialize(image_width, image_height, image_buffer);
 
     for (threads.items) |thread| {
         thread.join();
     }
 
-    try printPpmToStdout(image_buffer);
-
-    std.debug.print("finished render in {d}ms", .{timer.read() / 1000_000});
+    // try printPpmToStdout(image_buffer);
 }
 
 const Task = struct {
@@ -124,8 +121,35 @@ pub fn renderFn(context: Task) !void {
     try context.camera.render(context);
 }
 
-fn generateWorld(objects: *ObjectList) !Hittable {
-    const material_ground = Material{ .lambertian = Lambertian{ .albedo = Color{ 0.5, 0.5, 0.5 } } };
+fn scene(i: usize, camera: *Camera, objects: *ObjectList) !Hittable {
+    return switch (i) {
+        0 => randomSpheresScene(objects),
+        else => twoSpheresScene(camera, objects),
+    };
+}
+
+fn twoSpheresScene(camera: *Camera, objects: *ObjectList) !Hittable {
+    camera.samples_per_pixel = 100;
+    camera.max_depth = 50;
+    camera.lookfrom = Vector3{ 13, 2, 3 };
+    camera.lookat = Vector3{ 0, 0, 0 };
+    camera.vup = Vector3{ 0, 1, 0 };
+    camera.defocus_angle = 0;
+
+    const checker = CheckerTexture.initWithColors(0.32, Color{ 0.2, 0.3, 0.1 }, Color{ 0.9, 0.9, 0.9 });
+    const material = Lambertian.initWithTexture(checker);
+
+    try objects.append(Sphere.init(Vector3{ 0, -10, 0 }, 10, material));
+    try objects.append(Sphere.init(Vector3{ 0, 10, 0 }, 10, material));
+
+    const tree = try BvhTree.init(allocator, objects.items, 0, objects.items.len);
+
+    return Hittable{ .tree = tree };
+}
+
+fn randomSpheresScene(objects: *ObjectList) !Hittable {
+    const checker = CheckerTexture.initWithColors(0.32, Color{ 0.2, 0.3, 0.1 }, Color{ 0.9, 0.9, 0.9 });
+    const material_ground = Lambertian.initWithTexture(checker);
 
     try objects.append(Sphere.init(Vector3{ 0, -1000, 0 }, 1000, material_ground));
 
@@ -142,22 +166,24 @@ fn generateWorld(objects: *ObjectList) !Hittable {
                 var sphere_material: Material = undefined;
 
                 if (choose_mat < 0.8) {
-                    sphere_material = Material{ .lambertian = Lambertian{ .albedo = colors.randomColorFromPalette() } };
+                    const center_2 = center + Vector3{ 0, rand.randomBetween(0, radius), 0 };
+                    sphere_material = Lambertian.init(colors.randomColorFromPalette());
+                    try objects.append(Sphere.initWithMotion(center, center_2, radius, sphere_material));
                 } else if (choose_mat < 0.95) {
                     const fuzz = rand.randomBetween(0.0, 0.5);
                     sphere_material = Material{ .metal = Metal{ .albedo = colors.randomColorFromPalette(), .fuzz = fuzz } };
+                    try objects.append(Sphere.init(center, radius, sphere_material));
                 } else {
                     sphere_material = Material{ .dielectric = Dielectric{ .index_of_refraction = 1.5 } };
+                    try objects.append(Sphere.init(center, radius, sphere_material));
                 }
-
-                try objects.append(Sphere.init(center, radius, sphere_material));
             }
         }
     }
 
     const sphere_material_1 = Material{ .dielectric = Dielectric{ .index_of_refraction = 1.5 } };
     try objects.append(Sphere.init(Vector3{ 0, 1, 0 }, 1, sphere_material_1));
-    const sphere_material_2 = Material{ .lambertian = Lambertian{ .albedo = Vector3{ 0.4, 0.2, 0.1 } } };
+    const sphere_material_2 = Lambertian.init(Vector3{ 0.4, 0.2, 0.1 });
     try objects.append(Sphere.init(Vector3{ -4, 1, 0 }, 1, sphere_material_2));
     const sphere_material_3 = Material{ .metal = Metal{ .albedo = Vector3{ 0.7, 0.6, 0.5 }, .fuzz = 0.0 } };
     try objects.append(Sphere.init(Vector3{ 4, 1, 0 }, 1, sphere_material_3));
@@ -279,8 +305,9 @@ const Camera = struct {
 
         const ray_origin = if (self.defocus_angle <= 0) self.center else self.defocusDiskSample();
         const ray_direction = pixel_sample - ray_origin;
+        const time = rand.randomFloat();
 
-        return Ray.init(ray_origin, ray_direction);
+        return Ray.initWithTime(ray_origin, ray_direction, time);
     }
 
     fn pixelSampleSquare(self: *Camera) Vector3 {
@@ -336,3 +363,7 @@ const SharedStateImageWriter = struct {
         self.buffer[x][y][3] = @floatFromInt(number_of_samples);
     }
 };
+
+test {
+    std.testing.refAllDeclsRecursive(@This());
+}

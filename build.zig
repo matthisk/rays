@@ -24,10 +24,9 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    // Add the SDL package.
-    exe.linkSystemLibrary("SDL2");
-    exe.linkLibC();
+    setupCompileStep(exe);
 
+    //
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
     // step when running `zig build`).
@@ -64,11 +63,28 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    setupCompileStep(unit_tests);
+
     const run_unit_tests = b.addRunArtifact(unit_tests);
+    run_unit_tests.has_side_effects = true; // for now always re-run.
 
     // Similar to creating the run step earlier, this exposes a `test` step to
     // the `zig build --help` menu, providing a way for the user to request
     // running the unit tests.
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_unit_tests.step);
+
+    const build_test_step = b.step("build_test", "Build unit test executable");
+    build_test_step.dependOn(&unit_tests.step);
+}
+
+// Setup compile step to include system and runtime dependencies.
+fn setupCompileStep(s: *std.Build.Step.Compile) void {
+    // Add SDL2 dependency from system.
+    s.linkSystemLibrary("SDL2");
+    s.linkLibC();
+
+    // Include stb_image from lib directory.
+    s.addIncludePath(std.build.LazyPath{ .path = "lib" });
+    s.addCSourceFile(.{ .file = .{ .path = "lib/stb_image.c" }, .flags = &.{} });
 }

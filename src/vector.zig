@@ -1,6 +1,7 @@
 const std = @import("std");
 const rand = @import("rand.zig");
 
+pub const Vector2 = @Vector(2, f64);
 pub const Vector3 = @Vector(3, f64);
 pub const Vector4 = @Vector(4, f64);
 

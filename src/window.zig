@@ -1,8 +1,6 @@
 const std = @import("std");
 const colors = @import("color.zig");
-const c = @cImport({
-    @cInclude("SDL2/SDL.h");
-});
+const c = @import("c.zig");
 const assert = @import("std").debug.assert;
 
 const ColorAndSamples = colors.ColorAndSamples;
@@ -60,7 +58,7 @@ pub fn initialize(w: i32, h: i32, image_buffer: [][]ColorAndSamples) !void {
     c.SDL_DestroyWindow(window);
     c.SDL_Quit();
 
-    // std.os.kill(std.os.darwin.getpid(), 9);
+    std.os.exit(0);
 }
 
 fn renderImageBuffer(w: i32, h: i32, surface: *c.SDL_Surface, image_buffer: [][]ColorAndSamples) void {

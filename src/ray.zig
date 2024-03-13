@@ -6,9 +6,14 @@ const Vector3 = vector.Vector3;
 pub const Ray = struct {
     origin: Vector3,
     direction: Vector3,
+    time: f64 = 0.0,
 
     pub fn init(origin: Vector3, direction: Vector3) Ray {
         return Ray{ .origin = origin, .direction = direction };
+    }
+
+    pub fn initWithTime(origin: Vector3, direction: Vector3, time: f64) Ray {
+        return Ray{ .origin = origin, .direction = direction, .time = time };
     }
 
     pub fn at(self: Ray, t: f64) Vector3 {

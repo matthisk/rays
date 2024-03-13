@@ -2,6 +2,7 @@ const std = @import("std");
 const Ray = @import("ray.zig").Ray;
 const Interval = @import("interval.zig");
 const vector = @import("vector.zig");
+const Vector2 = vector.Vector2;
 const Vector3 = vector.Vector3;
 const Lambertian = @import("material.zig").Lambertian;
 const Material = @import("material.zig").Material;
@@ -12,6 +13,8 @@ pub const HitRecord = struct {
     p: Vector3 = Vector3{ 0, 0, 0 },
     normal: Vector3 = Vector3{ 0, 0, 0 },
     t: f64 = 0,
+    u: f64 = 0,
+    v: f64 = 0,
     front_face: bool = false,
     mat: Material = undefined,
 
@@ -43,6 +46,7 @@ pub const Hittable = union(enum) {
 
 pub const Sphere = struct {
     center: Vector3,
+    center_vec: ?Vector3 = null,
     radius: f64,
     mat: Material,
     bounding_box: Aabb,
@@ -51,8 +55,18 @@ pub const Sphere = struct {
         return Hittable{ .sphere = Sphere{ .center = center, .radius = radius, .mat = mat, .bounding_box = Aabb.init(center - vector.splat3(radius), center + vector.splat3(radius)) } };
     }
 
+    pub fn initWithMotion(center_1: Vector3, center_2: Vector3, radius: f64, mat: Material) Hittable {
+        const rvec = vector.splat3(radius);
+        const aabb_1 = Aabb.init(center_1 - rvec, center_1 + rvec);
+        const aabb_2 = Aabb.init(center_2 - rvec, center_2 + rvec);
+        const bbox = Aabb.from(aabb_1, aabb_2);
+        return Hittable{ .sphere = Sphere{ .center = center_1, .center_vec = center_2 - center_1, .radius = radius, .mat = mat, .bounding_box = bbox } };
+    }
+
     pub fn hit(self: Sphere, ray: Ray, ray_t: Interval) ?HitRecord {
-        const oc = ray.origin - self.center;
+        const center = self.centerAtTime(ray.time);
+
+        const oc = ray.origin - center;
         const a = vector.lengthSquared(ray.direction);
         const half_b = vector.dot(oc, ray.direction);
         const cc = vector.lengthSquared(oc) - self.radius * self.radius;
@@ -73,10 +87,39 @@ pub const Sphere = struct {
         hit_record.t = root;
         hit_record.p = ray.at(hit_record.t);
         hit_record.mat = self.mat;
-        const outward_normal = (hit_record.p - self.center) / vector.splat3(self.radius);
+        const outward_normal = (hit_record.p - center) / vector.splat3(self.radius);
         hit_record.setFaceNormal(ray, outward_normal);
 
+        const uv = getSphereUv(hit_record.p);
+        hit_record.u = uv[0];
+        hit_record.v = uv[1];
+
         return hit_record;
+    }
+
+    fn centerAtTime(self: Sphere, time: f64) Vector3 {
+        if (self.center_vec) |center_vec| {
+            return self.center + vector.splat3(time) * center_vec;
+        } else {
+            return self.center;
+        }
+    }
+
+    fn getSphereUv(p: Vector3) Vector2 {
+        // p: a given point on the sphere of radius one, centered at the origin.
+        // u: returned value [0,1] of angle around the Y axis from X=-1.
+        // v: returned value [0,1] of angle from Y=-1 to Y=+1.
+        //     <1 0 0> yields <0.50 0.50>       <-1  0  0> yields <0.00 0.50>
+        //     <0 1 0> yields <0.50 1.00>       < 0 -1  0> yields <0.50 0.00>
+        //     <0 0 1> yields <0.25 0.50>       < 0  0 -1> yields <0.75 0.50>
+        //
+        const theta = std.math.acos(-p[0]);
+        const phi = std.math.atan2(f64, -p[2], -p[0]) + std.math.pi;
+
+        return Vector2{
+            (phi / (2 * std.math.pi)),
+            (theta / std.math.pi),
+        };
     }
 };
 

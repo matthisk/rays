@@ -4,6 +4,10 @@ const Ray = @import("ray.zig").Ray;
 const HitRecord = @import("objects.zig").HitRecord;
 const vector = @import("vector.zig");
 const rand = @import("rand.zig");
+const textures = @import("texture.zig");
+
+const Texture = textures.Texture;
+const SolidColor = textures.SolidColor;
 
 pub const Material = union(enum) {
     lambertian: Lambertian,
@@ -18,21 +22,25 @@ pub const Material = union(enum) {
 };
 
 pub const Lambertian = struct {
-    albedo: Color,
+    albedo: Texture,
 
     pub fn init(albedo: Color) Material {
-        return Material{ .lambertian = Lambertian{ .albedo = albedo } };
+        return Material{ .lambertian = Lambertian{ .albedo = SolidColor.init(albedo) } };
     }
 
-    pub fn scatter(self: Lambertian, _: Ray, record: HitRecord, attenuation: *Color, scattered: *Ray) bool {
+    pub fn initWithTexture(texture: Texture) Material {
+        return Material{ .lambertian = Lambertian{ .albedo = texture } };
+    }
+
+    pub fn scatter(self: Lambertian, r_in: Ray, record: HitRecord, attenuation: *Color, scattered: *Ray) bool {
         var scatter_direction = record.normal + vector.randomUnitVector();
 
         if (vector.nearZero(scatter_direction)) {
             scatter_direction = record.normal;
         }
 
-        scattered.* = Ray{ .origin = record.p, .direction = scatter_direction };
-        attenuation.* = self.albedo;
+        scattered.* = Ray{ .origin = record.p, .direction = scatter_direction, .time = r_in.time };
+        attenuation.* = self.albedo.value(record.u, record.v, record.p);
 
         return true;
     }
@@ -52,7 +60,7 @@ pub const Metal = struct {
     pub fn scatter(self: Metal, r_in: Ray, record: HitRecord, attenuation: *Color, scattered: *Ray) bool {
         const reflected = vector.reflect(vector.unitVector(r_in.direction), record.normal);
 
-        scattered.* = Ray{ .origin = record.p, .direction = reflected + vector.randomUnitVector() * vector.splat3(self.fuzz) };
+        scattered.* = Ray{ .origin = record.p, .direction = reflected + vector.randomUnitVector() * vector.splat3(self.fuzz), .time = r_in.time };
         attenuation.* = self.albedo;
 
         return true;
@@ -79,7 +87,7 @@ pub const Dielectric = struct {
             direction = vector.refract(unit_direction, record.normal, refraction_ratio);
         }
 
-        scattered.* = Ray{ .origin = record.p, .direction = direction };
+        scattered.* = Ray{ .origin = record.p, .direction = direction, .time = r_in.time };
 
         return true;
     }
