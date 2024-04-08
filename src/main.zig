@@ -20,7 +20,7 @@ const Sphere = @import("objects.zig").Sphere;
 const BvhTree = @import("objects.zig").BvhTree;
 const printPpmToStdout = @import("stdout.zig").printPpmToStdout;
 const CheckerTexture = @import("texture.zig").CheckerTexture;
-const image = @import("image.zig");
+const RtwImage = @import("image.zig").RtwImage;
 
 const degreesToRadians = @import("math.zig").degreesToRadians;
 const linearToGamma = @import("math.zig").linearToGamma;
@@ -54,6 +54,10 @@ pub fn main() !void {
             image_buffer[x][y] = vector.Vector4{ 0, 0, 0, 1 };
         }
     }
+
+    // TODO: read from relative path.
+    const image = try RtwImage.init(allocator, "/home/matthiskheimensen/dev/github.com/matthisk/rays");
+    _ = image;
 
     // Allocate heap.
     var objects = ObjectList.init(allocator);

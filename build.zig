@@ -57,10 +57,12 @@ pub fn build(b: *std.Build) void {
 
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
+    const test_filter = b.option([]const u8, "test-filter", "Skip tests that do not match filter");
     const unit_tests = b.addTest(.{
         .root_source_file = .{ .path = "src/main.zig" },
         .target = target,
         .optimize = optimize,
+        .filter = test_filter,
     });
 
     setupCompileStep(unit_tests);
