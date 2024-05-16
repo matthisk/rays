@@ -20,10 +20,12 @@ const Sphere = @import("objects.zig").Sphere;
 const BvhTree = @import("objects.zig").BvhTree;
 const printPpmToStdout = @import("stdout.zig").printPpmToStdout;
 const CheckerTexture = @import("texture.zig").CheckerTexture;
+const ImageTexture = @import("texture.zig").ImageTexture;
 const RtwImage = @import("image.zig").RtwImage;
 
 const degreesToRadians = @import("math.zig").degreesToRadians;
 const linearToGamma = @import("math.zig").linearToGamma;
+const absolutePath = @import("util.zig").absolutePath;
 
 const Vector3 = vector.Vector3;
 const Ray = rays.Ray;
@@ -55,10 +57,6 @@ pub fn main() !void {
         }
     }
 
-    // TODO: read from relative path.
-    const image = try RtwImage.init(allocator);
-    try image.load("/home/matthiskheimensen/dev/github.com/matthisk/rays");
-
     // Allocate heap.
     var objects = ObjectList.init(allocator);
     defer objects.deinit();
@@ -88,7 +86,7 @@ pub fn main() !void {
     };
 
     // Generate a random world.
-    const world = try scene(1, &camera, &objects);
+    const world = try scene(2, &camera, &objects);
 
     var threads = std.ArrayList(std.Thread).init(allocator);
 
@@ -128,8 +126,32 @@ pub fn renderFn(context: Task) !void {
 fn scene(i: usize, camera: *Camera, objects: *ObjectList) !Hittable {
     return switch (i) {
         0 => randomSpheresScene(objects),
-        else => twoSpheresScene(camera, objects),
+        1 => twoSpheresScene(camera, objects),
+        else => globeScene(camera, objects),
     };
+}
+
+fn globeScene(camera: *Camera, objects: *ObjectList) !Hittable {
+    camera.samples_per_pixel = 100;
+    camera.max_depth = 50;
+    camera.vfov = 20;
+    camera.lookfrom = Vector3{ 0, 0, 12 };
+    camera.lookat = Vector3{ 0, 0, 0 };
+    camera.vup = Vector3{ 0, 1, 0 };
+    camera.defocus_angle = 0;
+
+    const image = try RtwImage.init(allocator);
+    const path = try absolutePath(allocator, "assets/earthmap.jpg");
+    try image.load(path);
+
+    const imageTexture = ImageTexture.init(image);
+    const material = Lambertian.initWithTexture(imageTexture);
+
+    try objects.append(Sphere.init(Vector3{ 0, 0, 0 }, 2, material));
+
+    const tree = try BvhTree.init(allocator, objects.items, 0, objects.items.len);
+
+    return Hittable{ .tree = tree };
 }
 
 fn twoSpheresScene(camera: *Camera, objects: *ObjectList) !Hittable {

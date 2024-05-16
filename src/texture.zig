@@ -1,13 +1,15 @@
 const std = @import("std");
 const vector = @import("vector.zig");
 const Color = @import("color.zig").Color;
-const _ = @import("image.zig");
+const RtwImage = @import("image.zig").RtwImage;
+const Interval = @import("interval.zig");
 
 const Vector3 = vector.Vector3;
 
 pub const Texture = union(enum) {
     solid_color: SolidColor,
     checker: CheckerTexture,
+    image: ImageTexture,
 
     pub fn value(self: Texture, u: f64, v: f64, p: Vector3) Color {
         return switch (self) {
@@ -84,3 +86,31 @@ test "checker texture" {
     try std.testing.expectEqual(even, color_3);
     try std.testing.expectEqual(odd, color_4);
 }
+
+pub const ImageTexture = struct {
+    image: *RtwImage,
+
+    pub fn init(image: *RtwImage) Texture {
+        const imageTexture = ImageTexture{
+            .image = image,
+        };
+
+        return Texture{ .image = imageTexture };
+    }
+
+    pub fn value(self: ImageTexture, u: f64, v: f64, p: Vector3) Color {
+        _ = p;
+        if (self.image.height() <= 0) return Vector3{ 0, 0, 0 };
+
+        const u_n = (Interval{ .min = 0, .max = 1 }).clamp(u);
+        const v_n = 1.0 - (Interval{ .min = 0, .max = 1 }).clamp(v);
+
+        const i = u_n * @as(f64, @floatFromInt(self.image.width()));
+        const j = v_n * @as(f64, @floatFromInt(self.image.height()));
+
+        const pixel = self.image.pixelData(@intFromFloat(i), @intFromFloat(j));
+
+        const color_scale = 1.0 / 255.0;
+        return Vector3{ color_scale * pixel[0], color_scale * pixel[1], color_scale * pixel[2] };
+    }
+};

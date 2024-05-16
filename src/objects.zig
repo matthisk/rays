@@ -90,7 +90,7 @@ pub const Sphere = struct {
         const outward_normal = (hit_record.p - center) / vector.splat3(self.radius);
         hit_record.setFaceNormal(ray, outward_normal);
 
-        const uv = getSphereUv(hit_record.p);
+        const uv = getSphereUv(outward_normal);
         hit_record.u = uv[0];
         hit_record.v = uv[1];
 
@@ -113,8 +113,8 @@ pub const Sphere = struct {
         //     <0 1 0> yields <0.50 1.00>       < 0 -1  0> yields <0.50 0.00>
         //     <0 0 1> yields <0.25 0.50>       < 0  0 -1> yields <0.75 0.50>
         //
-        const theta = std.math.acos(-p[0]);
-        const phi = std.math.atan2(f64, -p[2], -p[0]) + std.math.pi;
+        const theta = std.math.acos(-p[1]);
+        const phi = std.math.atan2(f64, -p[2], p[0]) + std.math.pi;
 
         return Vector2{
             (phi / (2 * std.math.pi)),
@@ -388,7 +388,7 @@ test "big bvh tree" {
 }
 
 test "bvh tree benchmark" {
-    const len = 10_000;
+    const len = 10;
     const num_rays = 10_000;
 
     var objects = [_]Hittable{undefined} ** len;
@@ -415,8 +415,9 @@ test "bvh tree benchmark" {
     }
 
     const timing = timer.read();
+    _ = timing;
 
-    std.debug.print("\nbvh timing = {d}ms hits = {d}\n", .{ timing / 1_000_000, hits });
+    // std.debug.print("\nbvh timing = {d}ms hits = {d}\n", .{ timing / 1_000_000, hits });
 
     timer.reset();
     hits = 0;
@@ -430,6 +431,7 @@ test "bvh tree benchmark" {
     }
 
     const timing_list = timer.read();
+    _ = timing_list;
 
-    std.debug.print("list timing = {d}ms hits = {d}\n", .{ timing_list / 1_000_000, hits });
+    // std.debug.print("list timing = {d}ms hits = {d}\n", .{ timing_list / 1_000_000, hits });
 }
