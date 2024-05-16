@@ -56,8 +56,8 @@ pub fn main() !void {
     }
 
     // TODO: read from relative path.
-    const image = try RtwImage.init(allocator, "/home/matthiskheimensen/dev/github.com/matthisk/rays");
-    _ = image;
+    const image = try RtwImage.init(allocator);
+    try image.load("/home/matthiskheimensen/dev/github.com/matthisk/rays");
 
     // Allocate heap.
     var objects = ObjectList.init(allocator);
