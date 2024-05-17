@@ -50,11 +50,11 @@ pub const Metal = struct {
     albedo: Color,
     fuzz: f64,
 
-    pub fn init(albedo: Color, f: f64) Metal {
-        return Metal{
+    pub fn init(albedo: Color, f: f64) Material {
+        return Material{ .metal = Metal{
             .albedo = albedo,
             .fuzz = if (f < 1) f else 1,
-        };
+        } };
     }
 
     pub fn scatter(self: Metal, r_in: Ray, record: HitRecord, attenuation: *Color, scattered: *Ray) bool {

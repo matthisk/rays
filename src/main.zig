@@ -146,8 +146,12 @@ fn globeScene(camera: *Camera, objects: *ObjectList) !Hittable {
 
     const imageTexture = ImageTexture.init(image);
     const material = Lambertian.initWithTexture(imageTexture);
+    const material_ground = Lambertian.init(Color{ 0.1, 0.1, 0.5 });
+    const reflective = Metal.init(Color{ 0.7, 0.6, 0.5 }, 0.01);
 
-    try objects.append(Sphere.init(Vector3{ 0, 0, 0 }, 2, material));
+    try objects.append(Sphere.init(Vector3{ 0, -1000, -100 }, 1000, material_ground));
+    try objects.append(Sphere.init(Vector3{ 0, 0, 1 }, 1.5, material));
+    try objects.append(Sphere.init(Vector3{ 3, -1, -5 }, 1, reflective));
 
     const tree = try BvhTree.init(allocator, objects.items, 0, objects.items.len);
 
