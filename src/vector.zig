@@ -9,6 +9,10 @@ pub fn dot(u: Vector3, v: Vector3) f64 {
     return u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
 }
 
+pub fn dot_2(u: Vector2, v: Vector2) f64 {
+    return u[0] * v[0] + u[1] * v[1];
+}
+
 pub fn cross(u: Vector3, v: Vector3) Vector3 {
     return Vector3{
         u[1] * v[2] - u[2] * v[1],

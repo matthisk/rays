@@ -21,7 +21,11 @@ const BvhTree = @import("objects.zig").BvhTree;
 const printPpmToStdout = @import("stdout.zig").printPpmToStdout;
 const CheckerTexture = @import("texture.zig").CheckerTexture;
 const ImageTexture = @import("texture.zig").ImageTexture;
+const NoiseTexture = @import("texture.zig").NoiseTexture;
+const MarbleTexture = @import("texture.zig").MarbleTexture;
+const WoodTexture = @import("texture.zig").WoodTexture;
 const RtwImage = @import("image.zig").RtwImage;
+const Perlin = @import("perlin.zig");
 
 const degreesToRadians = @import("math.zig").degreesToRadians;
 const linearToGamma = @import("math.zig").linearToGamma;
@@ -86,7 +90,7 @@ pub fn main() !void {
     };
 
     // Generate a random world.
-    const world = try scene(2, &camera, &objects);
+    const world = try scene(3, &camera, &objects);
 
     var threads = std.ArrayList(std.Thread).init(allocator);
 
@@ -127,8 +131,32 @@ fn scene(i: usize, camera: *Camera, objects: *ObjectList) !Hittable {
     return switch (i) {
         0 => randomSpheresScene(objects),
         1 => twoSpheresScene(camera, objects),
-        else => globeScene(camera, objects),
+        2 => globeScene(camera, objects),
+        else => perlinScene(camera, objects),
     };
+}
+
+fn perlinScene(camera: *Camera, objects: *ObjectList) !Hittable {
+    camera.samples_per_pixel = 100;
+    camera.max_depth = 50;
+    camera.vfov = 20;
+    camera.lookfrom = Vector3{ 13, 2, 3 };
+    camera.lookat = Vector3{ 0, 0, 0 };
+    camera.vup = Vector3{ 0, 1, 0 };
+    camera.defocus_angle = 0;
+
+    const perlin = try Perlin.init(allocator);
+    const ground_texture = CheckerTexture.initWithColors(0.32, Color{ 0.2, 0.3, 0.1 }, Color{ 0.9, 0.9, 0.9 });
+    const marble_texture = MarbleTexture.init(perlin);
+    const wood_texture = WoodTexture.init(perlin);
+
+    try objects.append(Sphere.init(Vector3{ 0, -1001, 0 }, 1000, Lambertian.initWithTexture(ground_texture)));
+    try objects.append(Sphere.init(Vector3{ -4, 1, -6 }, 2, Lambertian.initWithTexture(marble_texture)));
+    try objects.append(Sphere.init(Vector3{ -6, 0.8, -2 }, 1.8, Lambertian.initWithTexture(wood_texture)));
+
+    const tree = try BvhTree.init(allocator, objects.items, 0, objects.items.len);
+
+    return Hittable{ .tree = tree };
 }
 
 fn globeScene(camera: *Camera, objects: *ObjectList) !Hittable {
