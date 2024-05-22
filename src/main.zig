@@ -12,6 +12,7 @@ const Interval = @import("interval.zig");
 const Material = @import("material.zig").Material;
 const Dielectric = @import("material.zig").Dielectric;
 const Lambertian = @import("material.zig").Lambertian;
+const DiffuseLight = @import("material.zig").DiffuseLight;
 const Metal = @import("material.zig").Metal;
 const Hittable = @import("objects.zig").Hittable;
 const HittableList = @import("objects.zig").HittableList;
@@ -43,8 +44,8 @@ var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 var arena = std.heap.ArenaAllocator.init(gpa.allocator());
 var allocator = arena.allocator();
 
-const image_width: u32 = 400;
-const image_height: u32 = 400;
+const image_width: u32 = 800;
+const image_height: u32 = 450;
 
 const number_of_threads = 8;
 
@@ -91,7 +92,7 @@ pub fn main() !void {
     };
 
     // Generate a random world.
-    const world = try scene(4, &camera, &objects);
+    const world = try scene(0, &camera, &objects);
 
     var threads = std.ArrayList(std.Thread).init(allocator);
 
@@ -130,11 +131,12 @@ pub fn renderFn(context: Task) !void {
 
 fn scene(i: usize, camera: *Camera, objects: *ObjectList) !Hittable {
     return switch (i) {
-        0 => randomSpheresScene(objects),
+        0 => randomSpheresScene(camera, objects),
         1 => twoSpheresScene(camera, objects),
         2 => globeScene(camera, objects),
         3 => perlinScene(camera, objects),
-        else => quadsScene(camera, objects),
+        4 => quadsScene(camera, objects),
+        else => simpleLight(camera, objects),
     };
 }
 
@@ -146,6 +148,7 @@ fn perlinScene(camera: *Camera, objects: *ObjectList) !Hittable {
     camera.lookat = Vector3{ 0, 0, 0 };
     camera.vup = Vector3{ 0, 1, 0 };
     camera.defocus_angle = 0;
+    camera.background = Color{ 0.70, 0.80, 1.00 };
 
     const perlin = try Perlin.init(allocator);
     const ground_texture = CheckerTexture.initWithColors(0.32, Color{ 0.2, 0.3, 0.1 }, Color{ 0.9, 0.9, 0.9 });
@@ -169,6 +172,7 @@ fn quadsScene(camera: *Camera, objects: *ObjectList) !Hittable {
     camera.lookat = Vector3{ 0, 0, 0 };
     camera.vup = Vector3{ 0, 1, 0 };
     camera.defocus_angle = 0;
+    camera.background = Color{ 0.70, 0.80, 1.00 };
 
     const left_red = Lambertian.init(Color{ 1.0, 0.2, 0.2 });
     const back_green = Lambertian.init(Color{ 0.2, 1.0, 0.2 });
@@ -195,6 +199,7 @@ fn globeScene(camera: *Camera, objects: *ObjectList) !Hittable {
     camera.lookat = Vector3{ 0, 0, 0 };
     camera.vup = Vector3{ 0, 1, 0 };
     camera.defocus_angle = 0;
+    camera.background = Color{ 0.70, 0.80, 1.00 };
 
     const image = try RtwImage.init(allocator);
     const path = try absolutePath(allocator, "assets/earthmap.jpg");
@@ -221,6 +226,7 @@ fn twoSpheresScene(camera: *Camera, objects: *ObjectList) !Hittable {
     camera.lookat = Vector3{ 0, 0, 0 };
     camera.vup = Vector3{ 0, 1, 0 };
     camera.defocus_angle = 0;
+    camera.background = Color{ 0.70, 0.80, 1.00 };
 
     const checker = CheckerTexture.initWithColors(0.32, Color{ 0.2, 0.3, 0.1 }, Color{ 0.9, 0.9, 0.9 });
     const material = Lambertian.initWithTexture(checker);
@@ -233,7 +239,9 @@ fn twoSpheresScene(camera: *Camera, objects: *ObjectList) !Hittable {
     return Hittable{ .tree = tree };
 }
 
-fn randomSpheresScene(objects: *ObjectList) !Hittable {
+fn randomSpheresScene(camera: *Camera, objects: *ObjectList) !Hittable {
+    camera.background = Color{ 0.70, 0.80, 1.00 };
+
     const checker = CheckerTexture.initWithColors(0.32, Color{ 0.2, 0.3, 0.1 }, Color{ 0.9, 0.9, 0.9 });
     const material_ground = Lambertian.initWithTexture(checker);
 
@@ -279,6 +287,32 @@ fn randomSpheresScene(objects: *ObjectList) !Hittable {
     return Hittable{ .tree = tree };
 }
 
+fn simpleLight(camera: *Camera, objects: *ObjectList) !Hittable {
+    camera.samples_per_pixel = 100;
+    camera.max_depth = 50;
+    camera.vfov = 20;
+    camera.lookfrom = Vector3{ 26, 3, 6 };
+    camera.lookat = Vector3{ 0, 2, 0 };
+    camera.vup = Vector3{ 0, 1, 0 };
+    camera.defocus_angle = 0;
+    camera.background = Color{ 0, 0, 0 };
+
+    const perlin = try Perlin.init(allocator);
+    const marble_texture = MarbleTexture.init(perlin);
+
+    try objects.append(Sphere.init(Vector3{ 0, -1000, 0 }, 1000, Lambertian.initWithTexture(marble_texture)));
+    try objects.append(Sphere.init(Vector3{ 0, 2, 0 }, 2, Lambertian.initWithTexture(marble_texture)));
+
+    const light = DiffuseLight.init(Color{ 1, 4, 4 });
+
+    try objects.append(Sphere.init(Vector3{ 0, 7, 2 }, 1, light));
+    try objects.append(Quad.initQuad(Vector3{ 3, 1, -2 }, Vector3{ 2, 0, 0 }, Vector3{ 0, 2, 0 }, light));
+
+    const tree = try BvhTree.init(allocator, objects.items, 0, objects.items.len);
+
+    return Hittable{ .tree = tree };
+}
+
 const Camera = struct {
     aspect_ratio: f64 = 1.0, // Ratio of image width over height
     img_width: u32 = 0, // Rendered image width in pixel count
@@ -299,6 +333,8 @@ const Camera = struct {
     focus_dist: f64 = 10.0, // Distance from camera lookfrom point to plane of perfect focus
     defocus_disk_u: Vector3 = undefined,
     defocus_disk_v: Vector3 = undefined,
+
+    background: ?Color = Color{ 0, 0, 0 }, // Scene background color
 
     u: Vector3 = undefined,
     v: Vector3 = undefined,
@@ -367,20 +403,25 @@ const Camera = struct {
         if (opt_hit_record) |hit_record| {
             var attenuation: Color = undefined;
             var scattered: Ray = undefined;
+            var color_from_emmission = hit_record.mat.emitted(hit_record.u, hit_record.v, hit_record.p);
 
             if (hit_record.mat.scatter(ray, hit_record, &attenuation, &scattered)) {
-                return attenuation * self.rayColor(scattered, world, depth - 1);
+                return color_from_emmission + attenuation * self.rayColor(scattered, world, depth - 1);
             }
 
-            return Color{ 0, 0, 0 };
+            return color_from_emmission;
         }
 
-        // Sky model.
-        // This section calculates the color of a ray in case it doesn't hit any object.
-        const unit_direction = vector.unitVector(ray.direction);
-        const a = 0.5 * (unit_direction[1] + 1.0);
+        if (self.background) |background| {
+            return background;
+        } else {
+            // Sky model.
+            // This section calculates the color of a ray in case it doesn't hit any object.
+            const unit_direction = vector.unitVector(ray.direction);
+            const a = 0.5 * (unit_direction[1] + 1.0);
 
-        return Color{ 1, 1, 1 } * vector.splat3(1.0 - a) + Color{ 0.5, 0.7, 1.0 } * vector.splat3(a);
+            return Color{ 1, 1, 1 } * vector.splat3(1.0 - a) + Color{ 0.5, 0.7, 1.0 } * vector.splat3(a);
+        }
     }
 
     fn getRay(self: *Camera, x: u64, y: u64) Ray {

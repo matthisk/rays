@@ -6,6 +6,7 @@ const vector = @import("vector.zig");
 const rand = @import("rand.zig");
 const textures = @import("texture.zig");
 
+const Vector3 = vector.Vector3;
 const Texture = textures.Texture;
 const SolidColor = textures.SolidColor;
 
@@ -13,6 +14,14 @@ pub const Material = union(enum) {
     lambertian: Lambertian,
     metal: Metal,
     dielectric: Dielectric,
+    diffuse_light: DiffuseLight,
+
+    pub fn emitted(self: Material, u: f64, v: f64, p: Vector3) Color {
+        return switch (self) {
+            inline .diffuse_light => |case| case.emitted(u, v, p),
+            inline else => Color{ 0, 0, 0 },
+        };
+    }
 
     pub fn scatter(self: Material, ray_in: Ray, record: HitRecord, attenuation: *Color, scattered: *Ray) bool {
         return switch (self) {
@@ -97,5 +106,27 @@ pub const Dielectric = struct {
         r0 = r0 * r0;
 
         return r0 + (1 - r0) * std.math.pow(f64, (1 - cosine), 5);
+    }
+};
+
+pub const DiffuseLight = struct {
+    texture: Texture,
+
+    pub fn init(color: Color) Material {
+        const texture = SolidColor.init(color);
+        return Material{ .diffuse_light = DiffuseLight{ .texture = texture } };
+    }
+
+    pub fn scatter(self: DiffuseLight, r_in: Ray, record: HitRecord, attenuation: *Color, scattered: *Ray) bool {
+        _ = scattered;
+        _ = attenuation;
+        _ = record;
+        _ = r_in;
+        _ = self;
+        return false;
+    }
+
+    pub fn emitted(self: DiffuseLight, u: f64, v: f64, p: Vector3) Color {
+        return self.texture.value(u, v, p);
     }
 };
