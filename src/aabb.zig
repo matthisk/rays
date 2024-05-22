@@ -14,9 +14,16 @@ y: Interval = Interval{},
 z: Interval = Interval{},
 
 pub fn init(a: Vector3, b: Vector3) Aabb {
-    const x = Interval{ .min = @min(a[0], b[0]), .max = @max(a[0], b[0]) };
-    const y = Interval{ .min = @min(a[1], b[1]), .max = @max(a[1], b[1]) };
-    const z = Interval{ .min = @min(a[2], b[2]), .max = @max(a[2], b[2]) };
+    var x = Interval{ .min = @min(a[0], b[0]), .max = @max(a[0], b[0]) };
+    var y = Interval{ .min = @min(a[1], b[1]), .max = @max(a[1], b[1]) };
+    var z = Interval{ .min = @min(a[2], b[2]), .max = @max(a[2], b[2]) };
+
+    // Pad the AABB so that no side is narrower than 1e-4.
+    // This helps avoid missed collission detection on triangles or more sided faces.
+    const delta = 1e-4;
+    if (x.size() < delta) x = x.expand(delta);
+    if (y.size() < delta) y = y.expand(delta);
+    if (z.size() < delta) z = z.expand(delta);
 
     return Aabb{ .x = x, .y = y, .z = z };
 }

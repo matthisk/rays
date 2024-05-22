@@ -17,6 +17,7 @@ const Hittable = @import("objects.zig").Hittable;
 const HittableList = @import("objects.zig").HittableList;
 const HitRecord = @import("objects.zig").HitRecord;
 const Sphere = @import("objects.zig").Sphere;
+const Quad = @import("objects.zig").Quad;
 const BvhTree = @import("objects.zig").BvhTree;
 const printPpmToStdout = @import("stdout.zig").printPpmToStdout;
 const CheckerTexture = @import("texture.zig").CheckerTexture;
@@ -42,8 +43,8 @@ var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 var arena = std.heap.ArenaAllocator.init(gpa.allocator());
 var allocator = arena.allocator();
 
-const image_width: u32 = 1024;
-const image_height: u32 = 576;
+const image_width: u32 = 400;
+const image_height: u32 = 400;
 
 const number_of_threads = 8;
 
@@ -90,7 +91,7 @@ pub fn main() !void {
     };
 
     // Generate a random world.
-    const world = try scene(3, &camera, &objects);
+    const world = try scene(4, &camera, &objects);
 
     var threads = std.ArrayList(std.Thread).init(allocator);
 
@@ -132,7 +133,8 @@ fn scene(i: usize, camera: *Camera, objects: *ObjectList) !Hittable {
         0 => randomSpheresScene(objects),
         1 => twoSpheresScene(camera, objects),
         2 => globeScene(camera, objects),
-        else => perlinScene(camera, objects),
+        3 => perlinScene(camera, objects),
+        else => quadsScene(camera, objects),
     };
 }
 
@@ -153,6 +155,32 @@ fn perlinScene(camera: *Camera, objects: *ObjectList) !Hittable {
     try objects.append(Sphere.init(Vector3{ 0, -1001, 0 }, 1000, Lambertian.initWithTexture(ground_texture)));
     try objects.append(Sphere.init(Vector3{ -4, 1, -6 }, 2, Lambertian.initWithTexture(marble_texture)));
     try objects.append(Sphere.init(Vector3{ -6, 0.8, -2 }, 1.8, Lambertian.initWithTexture(wood_texture)));
+
+    const tree = try BvhTree.init(allocator, objects.items, 0, objects.items.len);
+
+    return Hittable{ .tree = tree };
+}
+
+fn quadsScene(camera: *Camera, objects: *ObjectList) !Hittable {
+    camera.samples_per_pixel = 100;
+    camera.max_depth = 50;
+    camera.vfov = 80;
+    camera.lookfrom = Vector3{ 0, 0, 9 };
+    camera.lookat = Vector3{ 0, 0, 0 };
+    camera.vup = Vector3{ 0, 1, 0 };
+    camera.defocus_angle = 0;
+
+    const left_red = Lambertian.init(Color{ 1.0, 0.2, 0.2 });
+    const back_green = Lambertian.init(Color{ 0.2, 1.0, 0.2 });
+    const right_blue = Lambertian.init(Color{ 0.2, 0.2, 1.0 });
+    const upper_orange = Lambertian.init(Color{ 1.0, 0.5, 0 });
+    const lower_teal = Lambertian.init(Color{ 0.2, 0.8, 0.8 });
+
+    try objects.append(Quad.initQuad(Vector3{ -3, -2, 5 }, Vector3{ 0, 0, -4 }, Vector3{ 0, 4, 0 }, left_red));
+    try objects.append(Quad.initTriangle(Vector3{ -2, -2, 0 }, Vector3{ 4, 0, 0 }, Vector3{ 0, 4, 0 }, back_green));
+    try objects.append(Quad.initQuad(Vector3{ 3, -2, 1 }, Vector3{ 0, 0, 4 }, Vector3{ 0, 4, 0 }, right_blue));
+    try objects.append(Quad.initDisk(Vector3{ 0, 4, 0 }, 2, Vector3{ 0, 1, -0.2 }, upper_orange));
+    try objects.append(Quad.initQuad(Vector3{ -2, -3, 5 }, Vector3{ 4, 0, 0 }, Vector3{ 0, 0, -4 }, lower_teal));
 
     const tree = try BvhTree.init(allocator, objects.items, 0, objects.items.len);
 

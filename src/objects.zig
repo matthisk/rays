@@ -28,6 +28,7 @@ pub const HitRecord = struct {
 
 pub const Hittable = union(enum) {
     sphere: Sphere,
+    quad: Quad,
     list: HittableList,
     tree: BvhTree,
 
@@ -128,6 +129,132 @@ test "sphere hitbox" {
 
     try std.testing.expectEqual(Aabb.init(Vector3{ 5, 5, 5 }, Vector3{ 15, 15, 15 }), sphere.bbox());
 }
+
+pub const TwoDimPrimitive = enum {
+    quad,
+    triangle,
+    disk,
+};
+
+pub const Quad = struct {
+    primitive: TwoDimPrimitive, // the 2D primitive this object represents.
+    Q: Vector3, // origin point of the quad.
+    u: Vector3, // vector from Q to top left of quad.
+    v: Vector3, // vector from Q to bottom right of quad.
+    w: Vector3, // constant vector used to transform point P into 2d coordinates.
+    normal: Vector3,
+    D: f64,
+    mat: Material,
+    bounding_box: Aabb,
+
+    pub fn initDisk(C: Vector3, r: f64, N: Vector3, mat: Material) Hittable {
+        var V = vector.cross(N, Vector3{ 0, 0, 1 });
+        var U = vector.cross(N, V);
+        const z_axis_aligned = vector.length(V) == 0;
+
+        if (z_axis_aligned) {
+            return Quad.init(TwoDimPrimitive.disk, C, Vector3{ 0, r, 0 }, Vector3{ r, 0, 0 }, mat);
+        } else {
+            U = vector.unitVector(U) * vector.splat3(r);
+            V = vector.unitVector(V) * vector.splat3(r);
+            return Quad.init(TwoDimPrimitive.disk, C, U, V, mat);
+        }
+    }
+
+    pub fn initTriangle(Q: Vector3, u: Vector3, v: Vector3, mat: Material) Hittable {
+        return Quad.init(TwoDimPrimitive.triangle, Q, u, v, mat);
+    }
+
+    pub fn initQuad(Q: Vector3, u: Vector3, v: Vector3, mat: Material) Hittable {
+        return Quad.init(TwoDimPrimitive.quad, Q, u, v, mat);
+    }
+
+    pub fn init(primitive: TwoDimPrimitive, Q: Vector3, u: Vector3, v: Vector3, mat: Material) Hittable {
+        const n = vector.cross(u, v);
+        const normal = vector.unitVector(n);
+        const D = vector.dot(normal, Q);
+        const w = n / vector.splat3(vector.dot(n, n));
+
+        return Hittable{ .quad = Quad{
+            .primitive = primitive,
+            .Q = Q,
+            .v = v,
+            .u = u,
+            .mat = mat,
+            .normal = normal,
+            .D = D,
+            .w = w,
+            .bounding_box = compute_bbox(primitive, Q, u, v),
+        } };
+    }
+
+    pub fn hit(self: Quad, ray: Ray, ray_t: Interval) ?HitRecord {
+        const denom = vector.dot(self.normal, ray.direction);
+
+        // No hit if the ray is parallel to the plane.
+        if (@fabs(denom) < 1e-8) return null;
+
+        const t = (self.D - vector.dot(self.normal, ray.origin)) / denom;
+        // No hit if the hit point parameter t is outside of the ray.
+        if (!ray_t.contains(t)) return null;
+
+        var rec = HitRecord{};
+        const intersection = ray.at(t);
+        const planar_hitpt_vector = intersection - self.Q;
+        const alpha = vector.dot(self.w, vector.cross(planar_hitpt_vector, self.v));
+        const beta = vector.dot(self.w, vector.cross(self.u, planar_hitpt_vector));
+
+        if (!self.isInterior(alpha, beta, &rec))
+            return null;
+
+        rec.t = t;
+        rec.p = intersection;
+        rec.mat = self.mat;
+        rec.setFaceNormal(ray, self.normal);
+
+        return rec;
+    }
+
+    pub fn bbox(self: Quad) Aabb {
+        return self.bounding_box;
+    }
+
+    fn compute_bbox(primitive: TwoDimPrimitive, Q: Vector3, u: Vector3, v: Vector3) Aabb {
+        // For a disk primitive Q points to the center of the disk, not the bottom right corner.
+        // Thus we require a different calculation to construct the bounding box.
+        if (primitive == .disk) {
+            const aabb1 = Aabb.init(Q - u - v, Q + u + v);
+            const aabb2 = Aabb.init(Q + u - v, Q - u + v);
+            return Aabb.from(aabb1, aabb2);
+        }
+        const aabb1 = Aabb.init(Q, Q + u + v);
+        const aabb2 = Aabb.init(Q + u, Q + v);
+        return Aabb.from(aabb1, aabb2);
+    }
+
+    fn isInterior(self: Quad, a: f64, b: f64, rec: *HitRecord) bool {
+        const unit_interval = Interval{ .min = 0, .max = 1 };
+
+        switch (self.primitive) {
+            .quad => {
+                if (!unit_interval.contains(a) or !unit_interval.contains(b))
+                    return false;
+            },
+            .triangle => {
+                if (a < 0 or b < 0 or a + b > 1)
+                    return false;
+            },
+            .disk => {
+                if (@sqrt(a * a + b * b) > vector.length(self.u))
+                    return false;
+            },
+        }
+
+        rec.u = a;
+        rec.v = b;
+        return true;
+    }
+};
 
 pub const HittableList = struct {
     objects: []const Hittable,

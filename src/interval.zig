@@ -37,7 +37,7 @@ pub fn size(self: Interval) f64 {
     return self.max - self.min;
 }
 
-pub fn expand(self: Interval, delta: f64) f64 {
+pub fn expand(self: Interval, delta: f64) Interval {
     const padding = delta / 2;
     return Interval{
         .min = self.min - padding,
