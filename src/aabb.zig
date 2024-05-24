@@ -77,6 +77,14 @@ pub fn print(self: Aabb) void {
     std.debug.print("({d:.2},{d:.2},{d:.2}) ({d:.2},{d:.2},{d:.2})\n", .{ self.x.min, self.y.min, self.z.min, self.x.max, self.y.max, self.z.max });
 }
 
+pub fn plus(self: Aabb, offset: Vector3) Aabb {
+    return Aabb{
+        .x = self.x.plus(offset[0]),
+        .y = self.y.plus(offset[1]),
+        .z = self.z.plus(offset[2]),
+    };
+}
+
 test "hit" {
     const aabb = Aabb.init(Vector3{ 1, 1, 0 }, Vector3{ 6, 6, 1 });
     const ray = Ray.init(Vector3{ 0, 0, 0 }, Vector3{ 3, 5, 1 });

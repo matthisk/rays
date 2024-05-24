@@ -1,4 +1,5 @@
 const std = @import("std");
+const math = @import("math.zig");
 const Ray = @import("ray.zig").Ray;
 const Interval = @import("interval.zig");
 const vector = @import("vector.zig");
@@ -28,9 +29,11 @@ pub const HitRecord = struct {
 
 pub const Hittable = union(enum) {
     sphere: Sphere,
-    quad: Quad,
+    planar: Planar,
     list: HittableList,
     tree: BvhTree,
+    translate: Translate,
+    rotate_y: RotateY,
 
     pub fn hit(self: Hittable, ray: Ray, ray_t: Interval) ?HitRecord {
         return switch (self) {
@@ -136,7 +139,7 @@ pub const TwoDimPrimitive = enum {
     disk,
 };
 
-pub const Quad = struct {
+pub const Planar = struct {
     primitive: TwoDimPrimitive, // the 2D primitive this object represents.
     Q: Vector3, // origin point of the quad.
     u: Vector3, // vector from Q to top left of quad.
@@ -153,20 +156,20 @@ pub const Quad = struct {
         const z_axis_aligned = vector.length(V) == 0;
 
         if (z_axis_aligned) {
-            return Quad.init(TwoDimPrimitive.disk, C, Vector3{ 0, r, 0 }, Vector3{ r, 0, 0 }, mat);
+            return Planar.init(TwoDimPrimitive.disk, C, Vector3{ 0, r, 0 }, Vector3{ r, 0, 0 }, mat);
         } else {
             U = vector.unitVector(U) * vector.splat3(r);
             V = vector.unitVector(V) * vector.splat3(r);
-            return Quad.init(TwoDimPrimitive.disk, C, U, V, mat);
+            return Planar.init(TwoDimPrimitive.disk, C, U, V, mat);
         }
     }
 
     pub fn initTriangle(Q: Vector3, u: Vector3, v: Vector3, mat: Material) Hittable {
-        return Quad.init(TwoDimPrimitive.triangle, Q, u, v, mat);
+        return Planar.init(TwoDimPrimitive.triangle, Q, u, v, mat);
     }
 
     pub fn initQuad(Q: Vector3, u: Vector3, v: Vector3, mat: Material) Hittable {
-        return Quad.init(TwoDimPrimitive.quad, Q, u, v, mat);
+        return Planar.init(TwoDimPrimitive.quad, Q, u, v, mat);
     }
 
     pub fn init(primitive: TwoDimPrimitive, Q: Vector3, u: Vector3, v: Vector3, mat: Material) Hittable {
@@ -175,7 +178,7 @@ pub const Quad = struct {
         const D = vector.dot(normal, Q);
         const w = n / vector.splat3(vector.dot(n, n));
 
-        return Hittable{ .quad = Quad{
+        return Hittable{ .planar = Planar{
             .primitive = primitive,
             .Q = Q,
             .v = v,
@@ -188,7 +191,7 @@ pub const Quad = struct {
         } };
     }
 
-    pub fn hit(self: Quad, ray: Ray, ray_t: Interval) ?HitRecord {
+    pub fn hit(self: Planar, ray: Ray, ray_t: Interval) ?HitRecord {
         const denom = vector.dot(self.normal, ray.direction);
 
         // No hit if the ray is parallel to the plane.
@@ -215,7 +218,7 @@ pub const Quad = struct {
         return rec;
     }
 
-    pub fn bbox(self: Quad) Aabb {
+    pub fn bbox(self: Planar) Aabb {
         return self.bounding_box;
     }
 
@@ -232,7 +235,7 @@ pub const Quad = struct {
         return Aabb.from(aabb1, aabb2);
     }
 
-    fn isInterior(self: Quad, a: f64, b: f64, rec: *HitRecord) bool {
+    fn isInterior(self: Planar, a: f64, b: f64, rec: *HitRecord) bool {
         const unit_interval = Interval{ .min = 0, .max = 1 };
 
         switch (self.primitive) {
@@ -253,6 +256,113 @@ pub const Quad = struct {
         rec.u = a;
         rec.v = b;
         return true;
+    }
+};
+
+pub const Translate = struct {
+    object: *const Hittable,
+    offset: Vector3,
+    bounding_box: Aabb,
+
+    pub fn init(object: *const Hittable, offset: Vector3) Hittable {
+        return Hittable{
+            .translate = Translate{ .object = object, .offset = offset, .bounding_box = object.bbox().plus(offset) },
+        };
+    }
+
+    pub fn hit(self: Translate, ray: Ray, ray_t: Interval) ?HitRecord {
+        const origin = ray.origin - self.offset;
+        const offset_ray = Ray.initWithTime(origin, ray.direction, ray.time);
+
+        if (self.object.hit(offset_ray, ray_t)) |hit_record| {
+            return HitRecord{
+                .p = hit_record.p + self.offset,
+                .normal = hit_record.normal,
+                .t = hit_record.t,
+                .u = hit_record.u,
+                .v = hit_record.v,
+                .front_face = hit_record.front_face,
+                .mat = hit_record.mat,
+            };
+        }
+
+        return null;
+    }
+};
+
+pub const RotateY = struct {
+    object: *const Hittable,
+    cos_theta: f64,
+    sin_theta: f64,
+    bounding_box: Aabb,
+
+    pub fn init(object: *const Hittable, degrees: f32) Hittable {
+        const theta = math.degreesToRadians(degrees);
+        const cos_theta = @cos(theta);
+        const sin_theta = @sin(theta);
+
+        const bbox = object.bbox();
+        var min = Vector3{ -99999999, -99999999, -99999999 };
+        var max = Vector3{ 99999999, 99999999, 99999999 };
+
+        for (0..2) |i| {
+            for (0..2) |j| {
+                for (0..2) |k| {
+                    // Iterate through all 8 corners of the cube.
+                    const x = @as(f64, @floatFromInt(i)) * bbox.x.max + @as(f64, @floatFromInt(1 - i)) * bbox.x.min;
+                    const y = @as(f64, @floatFromInt(j)) * bbox.y.max + @as(f64, @floatFromInt(1 - j)) * bbox.y.min;
+                    const z = @as(f64, @floatFromInt(k)) * bbox.z.max + @as(f64, @floatFromInt(1 - k)) * bbox.z.min;
+
+                    const new_x = cos_theta * x + sin_theta * z;
+                    const new_z = -sin_theta * x + cos_theta * z;
+
+                    const tester = Vector3{ new_x, y, new_z };
+
+                    for (0..2) |c| {
+                        min[c] = @min(min[c], tester[c]);
+                        max[c] = @max(max[c], tester[c]);
+                    }
+                }
+            }
+        }
+
+        return Hittable{ .rotate_y = RotateY{ .object = object, .cos_theta = @cos(theta), .sin_theta = @sin(theta), .bounding_box = Aabb.init(min, max) } };
+    }
+
+    pub fn hit(self: RotateY, ray: Ray, ray_t: Interval) ?HitRecord {
+        // Translate ray into object space.
+        const rotated_ray = Ray.initWithTime(self.rotate(ray.origin), self.rotate(ray.direction), ray.time);
+
+        if (self.object.hit(rotated_ray, ray_t)) |hit_record| {
+            // Change the intersection point from object space to world space.
+            return HitRecord{
+                .p = self.unRotate(hit_record.p),
+                .normal = self.unRotate(hit_record.normal),
+                .t = hit_record.t,
+                .u = hit_record.u,
+                .v = hit_record.v,
+                .front_face = hit_record.front_face,
+                .mat = hit_record.mat,
+            };
+        }
+
+        return null;
+    }
+
+    pub fn rotate(self: RotateY, v: Vector3) Vector3 {
+        return Vector3{
+            self.cos_theta * v[0] - self.sin_theta * v[2],
+            v[1],
+            self.sin_theta * v[0] + self.cos_theta * v[2],
+        };
+    }
+
+    pub fn unRotate(self: RotateY, v: Vector3) Vector3 {
+        return Vector3{
+            self.cos_theta * v[0] + self.sin_theta * v[2],
+            v[1],
+            -self.sin_theta * v[0] + self.cos_theta * v[2],
+        };
     }
 };
 

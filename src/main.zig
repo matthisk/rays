@@ -18,7 +18,9 @@ const Hittable = @import("objects.zig").Hittable;
 const HittableList = @import("objects.zig").HittableList;
 const HitRecord = @import("objects.zig").HitRecord;
 const Sphere = @import("objects.zig").Sphere;
-const Quad = @import("objects.zig").Quad;
+const Planar = @import("objects.zig").Planar;
+const Translate = @import("objects.zig").Translate;
+const RotateY = @import("objects.zig").RotateY;
 const BvhTree = @import("objects.zig").BvhTree;
 const printPpmToStdout = @import("stdout.zig").printPpmToStdout;
 const CheckerTexture = @import("texture.zig").CheckerTexture;
@@ -44,8 +46,8 @@ var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 var arena = std.heap.ArenaAllocator.init(gpa.allocator());
 var allocator = arena.allocator();
 
-const image_width: u32 = 800;
-const image_height: u32 = 450;
+const image_width: u32 = 600;
+const image_height: u32 = 600;
 
 const number_of_threads = 8;
 
@@ -92,7 +94,7 @@ pub fn main() !void {
     };
 
     // Generate a random world.
-    const world = try scene(0, &camera, &objects);
+    const world = try scene(6, &camera, &objects);
 
     var threads = std.ArrayList(std.Thread).init(allocator);
 
@@ -136,7 +138,8 @@ fn scene(i: usize, camera: *Camera, objects: *ObjectList) !Hittable {
         2 => globeScene(camera, objects),
         3 => perlinScene(camera, objects),
         4 => quadsScene(camera, objects),
-        else => simpleLight(camera, objects),
+        5 => simpleLight(camera, objects),
+        else => cornellBox(camera, objects),
     };
 }
 
@@ -180,11 +183,11 @@ fn quadsScene(camera: *Camera, objects: *ObjectList) !Hittable {
     const upper_orange = Lambertian.init(Color{ 1.0, 0.5, 0 });
     const lower_teal = Lambertian.init(Color{ 0.2, 0.8, 0.8 });
 
-    try objects.append(Quad.initQuad(Vector3{ -3, -2, 5 }, Vector3{ 0, 0, -4 }, Vector3{ 0, 4, 0 }, left_red));
-    try objects.append(Quad.initTriangle(Vector3{ -2, -2, 0 }, Vector3{ 4, 0, 0 }, Vector3{ 0, 4, 0 }, back_green));
-    try objects.append(Quad.initQuad(Vector3{ 3, -2, 1 }, Vector3{ 0, 0, 4 }, Vector3{ 0, 4, 0 }, right_blue));
-    try objects.append(Quad.initDisk(Vector3{ 0, 4, 0 }, 2, Vector3{ 0, 1, -0.2 }, upper_orange));
-    try objects.append(Quad.initQuad(Vector3{ -2, -3, 5 }, Vector3{ 4, 0, 0 }, Vector3{ 0, 0, -4 }, lower_teal));
+    try objects.append(Planar.initQuad(Vector3{ -3, -2, 5 }, Vector3{ 0, 0, -4 }, Vector3{ 0, 4, 0 }, left_red));
+    try objects.append(Planar.initTriangle(Vector3{ -2, -2, 0 }, Vector3{ 4, 0, 0 }, Vector3{ 0, 4, 0 }, back_green));
+    try objects.append(Planar.initQuad(Vector3{ 3, -2, 1 }, Vector3{ 0, 0, 4 }, Vector3{ 0, 4, 0 }, right_blue));
+    try objects.append(Planar.initDisk(Vector3{ 0, 4, 0 }, 2, Vector3{ 0, 1, -0.2 }, upper_orange));
+    try objects.append(Planar.initQuad(Vector3{ -2, -3, 5 }, Vector3{ 4, 0, 0 }, Vector3{ 0, 0, -4 }, lower_teal));
 
     const tree = try BvhTree.init(allocator, objects.items, 0, objects.items.len);
 
@@ -306,11 +309,71 @@ fn simpleLight(camera: *Camera, objects: *ObjectList) !Hittable {
     const light = DiffuseLight.init(Color{ 1, 4, 4 });
 
     try objects.append(Sphere.init(Vector3{ 0, 7, 2 }, 1, light));
-    try objects.append(Quad.initQuad(Vector3{ 3, 1, -2 }, Vector3{ 2, 0, 0 }, Vector3{ 0, 2, 0 }, light));
+    try objects.append(Planar.initQuad(Vector3{ 3, 1, -2 }, Vector3{ 2, 0, 0 }, Vector3{ 0, 2, 0 }, light));
 
     const tree = try BvhTree.init(allocator, objects.items, 0, objects.items.len);
 
     return Hittable{ .tree = tree };
+}
+
+fn cornellBox(camera: *Camera, objects: *ObjectList) !Hittable {
+    camera.samples_per_pixel = 200;
+    camera.max_depth = 50;
+    camera.vfov = 40;
+    camera.lookfrom = Vector3{ 278, 278, -800 };
+    camera.lookat = Vector3{ 278, 278, 0 };
+    camera.vup = Vector3{ 0, 1, 0 };
+    camera.defocus_angle = 0;
+    camera.background = Color{ 0, 0, 0 };
+
+    const red = Lambertian.init(Color{ 0.65, 0.05, 0.05 });
+    const white = Lambertian.init(Color{ 0.73, 0.73, 0.73 });
+    const green = Lambertian.init(Color{ 0.12, 0.45, 0.15 });
+    const light = DiffuseLight.init(Color{ 15, 15, 15 });
+
+    try objects.append(Planar.initQuad(Vector3{ 555, 0, 0 }, Vector3{ 0, 555, 0 }, Vector3{ 0, 0, 555 }, green));
+    try objects.append(Planar.initQuad(Vector3{ 0, 0, 0 }, Vector3{ 0, 555, 0 }, Vector3{ 0, 0, 555 }, red));
+    try objects.append(Planar.initQuad(Vector3{ 343, 554, 332 }, Vector3{ -160, 0, 0 }, Vector3{ 0, 0, -155 }, light));
+    try objects.append(Planar.initQuad(Vector3{ 0, 0, 0 }, Vector3{ 555, 0, 0 }, Vector3{ 0, 0, 555 }, white));
+    try objects.append(Planar.initQuad(Vector3{ 555, 555, 555 }, Vector3{ -555, 0, 0 }, Vector3{ 0, 0, -555 }, white));
+    try objects.append(Planar.initQuad(Vector3{ 0, 0, 555 }, Vector3{ 555, 0, 0 }, Vector3{ 0, 555, 0 }, white));
+
+    const first_cube = try box(Vector3{ 0, 0, 0 }, Vector3{ 165, 330, 165 }, white);
+    const second_cube = try box(Vector3{ 0, 0, 0 }, Vector3{ 165, 165, 165 }, white);
+
+    const first_cube_rotated = try allocator.create(Hittable);
+    const second_cube_rotated = try allocator.create(Hittable);
+    first_cube_rotated.* = RotateY.init(first_cube, 15);
+    second_cube_rotated.* = RotateY.init(second_cube, -18);
+    try objects.append(Translate.init(first_cube_rotated, Vector3{ 265, 0, 295 }));
+    try objects.append(Translate.init(second_cube_rotated, Vector3{ 130, 0, 65 }));
+
+    const tree = try BvhTree.init(allocator, objects.items, 0, objects.items.len);
+
+    return Hittable{ .tree = tree };
+}
+
+fn box(a: Vector3, b: Vector3, mat: Material) !*Hittable {
+    var sides = ObjectList.init(allocator);
+
+    const min = Vector3{ @min(a[0], b[0]), @min(a[1], b[1]), @min(a[2], b[2]) };
+    const max = Vector3{ @max(a[0], b[0]), @max(a[1], b[1]), @max(a[2], b[2]) };
+
+    const dx = Vector3{ max[0] - min[0], 0, 0 };
+    const dy = Vector3{ 0, max[1] - min[1], 0 };
+    const dz = Vector3{ 0, 0, max[2] - min[2] };
+
+    try sides.append(Planar.initQuad(Vector3{ min[0], min[1], max[2] }, dx, dy, mat)); // front
+    try sides.append(Planar.initQuad(Vector3{ max[0], min[1], max[2] }, -dz, dy, mat)); // right
+    try sides.append(Planar.initQuad(Vector3{ max[0], min[1], min[2] }, -dx, dy, mat)); // back
+    try sides.append(Planar.initQuad(min, dz, dy, mat)); // left
+    try sides.append(Planar.initQuad(Vector3{ min[0], max[1], max[2] }, dx, -dz, mat)); // top
+    try sides.append(Planar.initQuad(min, dx, dz, mat)); // bottom
+
+    const result = try allocator.create(Hittable);
+    result.* = HittableList.init(sides.items);
+
+    return result;
 }
 
 const Camera = struct {

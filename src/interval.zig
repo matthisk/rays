@@ -44,3 +44,10 @@ pub fn expand(self: Interval, delta: f64) Interval {
         .max = self.max + padding,
     };
 }
+
+pub fn plus(self: Interval, offset: f64) Interval {
+    return Interval{
+        .min = self.min + offset,
+        .max = self.max + offset,
+    };
+}
