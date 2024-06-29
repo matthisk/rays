@@ -109,8 +109,8 @@ pub const ImageTexture = struct {
         const u_n = (Interval{ .min = 0, .max = 1 }).clamp(u);
         const v_n = 1.0 - (Interval{ .min = 0, .max = 1 }).clamp(v);
 
-        const i = u_n * @as(f64, @floatFromInt(self.image.width()));
-        const j = v_n * @as(f64, @floatFromInt(self.image.height()));
+        const i = u_n * @as(f64, @floatFromInt(self.image.width())) - 1;
+        const j = v_n * @as(f64, @floatFromInt(self.image.height())) - 1;
 
         const pixel = self.image.pixelData(@intFromFloat(i), @intFromFloat(j));
 

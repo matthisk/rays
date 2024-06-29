@@ -20,8 +20,9 @@ const HitRecord = @import("objects.zig").HitRecord;
 const Sphere = @import("objects.zig").Sphere;
 const Planar = @import("objects.zig").Planar;
 const Translate = @import("objects.zig").Translate;
-const RotateY = @import("objects.zig").RotateY;
+const Rotate = @import("objects.zig").Rotate;
 const BvhTree = @import("objects.zig").BvhTree;
+const Cilinder = @import("objects.zig").Cilinder;
 const printPpmToStdout = @import("stdout.zig").printPpmToStdout;
 const CheckerTexture = @import("texture.zig").CheckerTexture;
 const ImageTexture = @import("texture.zig").ImageTexture;
@@ -49,7 +50,7 @@ var allocator = arena.allocator();
 const image_width: u32 = 600;
 const image_height: u32 = 600;
 
-const number_of_threads = 8;
+const number_of_threads = 32;
 
 pub fn main() !void {
     defer arena.deinit();
@@ -90,11 +91,11 @@ pub fn main() !void {
         .focus_dist = 10.0,
 
         // Writer.
-        .writer = SharedStateImageWriter.init(image_buffer),
+        .writer = try SharedStateImageWriter.init(allocator, image_buffer),
     };
 
     // Generate a random world.
-    const world = try scene(6, &camera, &objects);
+    const world = try scene(7, &camera, &objects);
 
     var threads = std.ArrayList(std.Thread).init(allocator);
 
@@ -127,23 +128,29 @@ const Task = struct {
     camera: *Camera,
 };
 
-pub fn renderFn(context: Task) !void {
-    try context.camera.render(context);
+pub fn renderFn(task: Task) !void {
+    try task.camera.render(task);
 }
 
 fn scene(i: usize, camera: *Camera, objects: *ObjectList) !Hittable {
-    return switch (i) {
+    try switch (i) {
         0 => randomSpheresScene(camera, objects),
         1 => twoSpheresScene(camera, objects),
         2 => globeScene(camera, objects),
         3 => perlinScene(camera, objects),
         4 => quadsScene(camera, objects),
         5 => simpleLight(camera, objects),
-        else => cornellBox(camera, objects),
+        6 => cornellBox(camera, objects),
+        7 => lego(camera, objects),
+        8 => legoScene(camera, objects),
+        else => cylinderScene(camera, objects),
     };
+
+    const tree = try BvhTree.init(allocator, objects.items, 0, objects.items.len);
+    return Hittable{ .tree = tree };
 }
 
-fn perlinScene(camera: *Camera, objects: *ObjectList) !Hittable {
+fn perlinScene(camera: *Camera, objects: *ObjectList) !void {
     camera.samples_per_pixel = 100;
     camera.max_depth = 50;
     camera.vfov = 20;
@@ -161,13 +168,9 @@ fn perlinScene(camera: *Camera, objects: *ObjectList) !Hittable {
     try objects.append(Sphere.init(Vector3{ 0, -1001, 0 }, 1000, Lambertian.initWithTexture(ground_texture)));
     try objects.append(Sphere.init(Vector3{ -4, 1, -6 }, 2, Lambertian.initWithTexture(marble_texture)));
     try objects.append(Sphere.init(Vector3{ -6, 0.8, -2 }, 1.8, Lambertian.initWithTexture(wood_texture)));
-
-    const tree = try BvhTree.init(allocator, objects.items, 0, objects.items.len);
-
-    return Hittable{ .tree = tree };
 }
 
-fn quadsScene(camera: *Camera, objects: *ObjectList) !Hittable {
+fn quadsScene(camera: *Camera, objects: *ObjectList) !void {
     camera.samples_per_pixel = 100;
     camera.max_depth = 50;
     camera.vfov = 80;
@@ -188,13 +191,9 @@ fn quadsScene(camera: *Camera, objects: *ObjectList) !Hittable {
     try objects.append(Planar.initQuad(Vector3{ 3, -2, 1 }, Vector3{ 0, 0, 4 }, Vector3{ 0, 4, 0 }, right_blue));
     try objects.append(Planar.initDisk(Vector3{ 0, 4, 0 }, 2, Vector3{ 0, 1, -0.2 }, upper_orange));
     try objects.append(Planar.initQuad(Vector3{ -2, -3, 5 }, Vector3{ 4, 0, 0 }, Vector3{ 0, 0, -4 }, lower_teal));
-
-    const tree = try BvhTree.init(allocator, objects.items, 0, objects.items.len);
-
-    return Hittable{ .tree = tree };
 }
 
-fn globeScene(camera: *Camera, objects: *ObjectList) !Hittable {
+fn globeScene(camera: *Camera, objects: *ObjectList) !void {
     camera.samples_per_pixel = 100;
     camera.max_depth = 50;
     camera.vfov = 20;
@@ -216,13 +215,34 @@ fn globeScene(camera: *Camera, objects: *ObjectList) !Hittable {
     try objects.append(Sphere.init(Vector3{ 0, -1000, -100 }, 1000, material_ground));
     try objects.append(Sphere.init(Vector3{ 0, 0, 1 }, 1.5, material));
     try objects.append(Sphere.init(Vector3{ 3, -1, -5 }, 1, reflective));
-
-    const tree = try BvhTree.init(allocator, objects.items, 0, objects.items.len);
-
-    return Hittable{ .tree = tree };
 }
 
-fn twoSpheresScene(camera: *Camera, objects: *ObjectList) !Hittable {
+fn cylinderScene(camera: *Camera, objects: *ObjectList) !void {
+    camera.samples_per_pixel = 100;
+    camera.max_depth = 50;
+    camera.vfov = 20;
+    camera.lookfrom = Vector3{ 0, 1, 12 };
+    camera.lookat = Vector3{ 0, 0, 0 };
+    camera.vup = Vector3{ 0, 1, 0 };
+    camera.defocus_angle = 0;
+    camera.background = Color{ 0.70, 0.80, 1.00 };
+    camera.max_depth = 3;
+
+    const image = try RtwImage.init(allocator);
+    const path = try absolutePath(allocator, "assets/earthmap.jpg");
+    try image.load(path);
+    const imageTexture = ImageTexture.init(image);
+    const material = Lambertian.initWithTexture(imageTexture);
+    const material_ground = Lambertian.init(Color{ 0.1, 0.1, 0.5 });
+    const reflective = Metal.init(Color{ 0.7, 0.6, 0.5 }, 0.01);
+
+    try objects.append(Sphere.init(Vector3{ 0, -1000, -100 }, 1000, material_ground));
+    try objects.append(Cilinder.init(Vector3{ -1, -1, -5 }, vector.unitVector(Vector3{ 1, 0.1, 0.3 }), 2, 1, material));
+    //try objects.append(Sphere.init(Vector3{ 0, 0, -5 }, 1.5, material));
+    try objects.append(Sphere.init(Vector3{ 3, -1, -5 }, 1, reflective));
+}
+
+fn twoSpheresScene(camera: *Camera, objects: *ObjectList) !void {
     camera.samples_per_pixel = 100;
     camera.max_depth = 50;
     camera.lookfrom = Vector3{ 13, 2, 3 };
@@ -236,13 +256,9 @@ fn twoSpheresScene(camera: *Camera, objects: *ObjectList) !Hittable {
 
     try objects.append(Sphere.init(Vector3{ 0, -10, 0 }, 10, material));
     try objects.append(Sphere.init(Vector3{ 0, 10, 0 }, 10, material));
-
-    const tree = try BvhTree.init(allocator, objects.items, 0, objects.items.len);
-
-    return Hittable{ .tree = tree };
 }
 
-fn randomSpheresScene(camera: *Camera, objects: *ObjectList) !Hittable {
+fn randomSpheresScene(camera: *Camera, objects: *ObjectList) !void {
     camera.background = Color{ 0.70, 0.80, 1.00 };
 
     const checker = CheckerTexture.initWithColors(0.32, Color{ 0.2, 0.3, 0.1 }, Color{ 0.9, 0.9, 0.9 });
@@ -284,13 +300,9 @@ fn randomSpheresScene(camera: *Camera, objects: *ObjectList) !Hittable {
     try objects.append(Sphere.init(Vector3{ -4, 1, 0 }, 1, sphere_material_2));
     const sphere_material_3 = Material{ .metal = Metal{ .albedo = Vector3{ 0.7, 0.6, 0.5 }, .fuzz = 0.0 } };
     try objects.append(Sphere.init(Vector3{ 4, 1, 0 }, 1, sphere_material_3));
-
-    const tree = try BvhTree.init(allocator, objects.items, 0, objects.items.len);
-
-    return Hittable{ .tree = tree };
 }
 
-fn simpleLight(camera: *Camera, objects: *ObjectList) !Hittable {
+fn simpleLight(camera: *Camera, objects: *ObjectList) !void {
     camera.samples_per_pixel = 100;
     camera.max_depth = 50;
     camera.vfov = 20;
@@ -310,13 +322,9 @@ fn simpleLight(camera: *Camera, objects: *ObjectList) !Hittable {
 
     try objects.append(Sphere.init(Vector3{ 0, 7, 2 }, 1, light));
     try objects.append(Planar.initQuad(Vector3{ 3, 1, -2 }, Vector3{ 2, 0, 0 }, Vector3{ 0, 2, 0 }, light));
-
-    const tree = try BvhTree.init(allocator, objects.items, 0, objects.items.len);
-
-    return Hittable{ .tree = tree };
 }
 
-fn cornellBox(camera: *Camera, objects: *ObjectList) !Hittable {
+fn cornellBox(camera: *Camera, objects: *ObjectList) !void {
     camera.samples_per_pixel = 200;
     camera.max_depth = 50;
     camera.vfov = 40;
@@ -343,14 +351,153 @@ fn cornellBox(camera: *Camera, objects: *ObjectList) !Hittable {
 
     const first_cube_rotated = try allocator.create(Hittable);
     const second_cube_rotated = try allocator.create(Hittable);
-    first_cube_rotated.* = RotateY.init(first_cube, 15);
-    second_cube_rotated.* = RotateY.init(second_cube, -18);
+    first_cube_rotated.* = Rotate.init(.y, first_cube, 15);
+    second_cube_rotated.* = Rotate.init(.y, second_cube, -18);
     try objects.append(Translate.init(first_cube_rotated, Vector3{ 265, 0, 295 }));
     try objects.append(Translate.init(second_cube_rotated, Vector3{ 130, 0, 65 }));
+}
 
-    const tree = try BvhTree.init(allocator, objects.items, 0, objects.items.len);
+fn lego(camera: *Camera, objects: *ObjectList) !void {
+    camera.samples_per_pixel = 500;
+    camera.max_depth = 50;
+    camera.vfov = 40;
+    camera.lookfrom = Vector3{ 278, 278, -800 };
+    camera.lookat = Vector3{ 278, 278, 0 };
+    camera.vup = Vector3{ 0, 1, 0 };
+    camera.defocus_angle = 0;
+    camera.background = Color{ 0, 0, 0 };
 
-    return Hittable{ .tree = tree };
+    const red = Lambertian.init(Color{ 0.65, 0.05, 0.05 });
+    const green = Lambertian.init(Color{ 0.12, 0.45, 0.15 });
+    const yellow = Lambertian.init(Color{ 0.96, 0.8, 0.26 });
+    const light = DiffuseLight.init(Color{ 15, 15, 15 });
+
+    var list = ObjectList.init(allocator);
+
+    const palette = [3]Material{ red, green, yellow };
+
+    for (0..20) |i| {
+        const ii = @as(f64, @floatFromInt(i));
+        for (0..20) |j| {
+            const jj = @as(f64, @floatFromInt(j));
+            const y: f64 = if (rand.randomFloat() < 0.5) 0 else 96;
+            const mat = palette[rand.randomIntBetween(0, 3)];
+
+            const block = try squareBlock(Vector3{ 158 * ii, y, 158 * jj }, 1, mat);
+
+            try list.append(block.*);
+        }
+    }
+
+    const bricks = try allocator.create(Hittable);
+    bricks.* = Hittable{ .tree = try BvhTree.init(allocator, list.items, 0, list.items.len) };
+
+    const rotated_y = try allocator.create(Hittable);
+    const rotated_x = try allocator.create(Hittable);
+    const translated = try allocator.create(Hittable);
+
+    rotated_y.* = Rotate.init(.y, bricks, -45);
+    rotated_x.* = Rotate.init(.x, rotated_y, 10);
+    translated.* = Translate.init(rotated_x, Vector3{ -100, -500, 0 });
+
+    try objects.append(translated.*);
+    try objects.append(Planar.initQuad(Vector3{ 500, 554, 554 }, Vector3{ -450, 0, 0 }, Vector3{ 0, 0, -540 }, light));
+
+    const glass = Material{ .dielectric = Dielectric{ .index_of_refraction = 1.5 } };
+    try objects.append(Sphere.init(Vector3{ 178, 155, 500 }, 150, glass));
+}
+
+fn legoScene(camera: *Camera, objects: *ObjectList) !void {
+    camera.samples_per_pixel = 200;
+    camera.max_depth = 50;
+    camera.vfov = 40;
+    camera.lookfrom = Vector3{ 478, 278, -600 };
+    camera.lookat = Vector3{ 278, 278, 0 };
+    camera.vup = Vector3{ 0, 1, 0 };
+    camera.defocus_angle = 0;
+    camera.background = Color{ 0, 0, 0 };
+
+    const ground = Lambertian.init(Color{ 0.48, 0.83, 0.53 });
+    const boxes_per_side = 20;
+
+    for (0..boxes_per_side) |i| {
+        const ii = @as(f32, @floatFromInt(i));
+        for (0..boxes_per_side) |j| {
+            const jj = @as(f32, @floatFromInt(j));
+
+            const w = 100.0;
+            const x0 = -1000.0 + ii * w;
+            const z0 = -1000.0 + jj * w;
+            const y0 = 0.0;
+            const x1 = x0 + w;
+            const y1 = @as(f32, @floatCast(rand.randomBetween(1, 101)));
+
+            const obj = try box(Vector3{ x0, y0, z0 }, Vector3{ x1, y1, z0 + w }, ground);
+            try objects.append(obj.*);
+        }
+    }
+
+    const light = DiffuseLight.init(Color{ 7, 7, 7 });
+
+    try objects.append(Planar.initQuad(Vector3{ 123, 554, 147 }, Vector3{ 300, 0, 0 }, Vector3{ 0, 0, 265 }, light));
+}
+
+fn squareBlock(origin: Vector3, scale: f32, mat: Material) !*Hittable {
+    const width = 158 * scale;
+    const height = 96 * scale;
+    const depth = 158 * scale;
+
+    var objects = ObjectList.init(allocator);
+    const first_cube = try box(origin, origin + Vector3{ width, height, depth }, mat);
+
+    const normal = Vector3{ 0, 1, 0 };
+    const radius = depth * 0.15;
+    const bob_height = 0.1875 * height;
+    const z_first_bob = depth / 3 - depth / 15;
+    const z_second_bob = 2 * depth / 3 + depth / 15;
+    const x_offset = width * 0.5;
+    const x_start = (width - x_offset) / 2;
+
+    try objects.append(Cilinder.init(origin + Vector3{ x_start, height, z_first_bob }, normal, bob_height, radius, mat));
+    try objects.append(Cilinder.init(origin + Vector3{ x_start, height, z_second_bob }, normal, bob_height, radius, mat));
+    try objects.append(Cilinder.init(origin + Vector3{ x_start + x_offset, height, z_first_bob }, normal, bob_height, radius, mat));
+    try objects.append(Cilinder.init(origin + Vector3{ x_start + x_offset, height, z_second_bob }, normal, bob_height, radius, mat));
+    try objects.append(first_cube.*);
+
+    const result = try allocator.create(Hittable);
+    result.* = HittableList.init(objects.items);
+    return result;
+}
+
+fn rectangleBlock(origin: Vector3, scale: f32, mat: Material) !*Hittable {
+    const width = 318 * scale;
+    const height = 96 * scale;
+    const depth = 158 * scale;
+
+    var objects = ObjectList.init(allocator);
+    const first_cube = try box(origin, origin + Vector3{ width, height, depth }, mat);
+
+    const normal = Vector3{ 0, 1, 0 };
+    const radius = depth * 0.15;
+    const bob_height = 0.1875 * height;
+    const z_first_bob = depth / 3 - depth / 15;
+    const z_second_bob = 2 * depth / 3 + depth / 15;
+    const x_offset = width / 3.975;
+    const x_start = (width - 3 * x_offset) / 2;
+
+    try objects.append(Cilinder.init(origin + Vector3{ x_start, height, z_first_bob }, normal, bob_height, radius, mat));
+    try objects.append(Cilinder.init(origin + Vector3{ x_start, height, z_second_bob }, normal, bob_height, radius, mat));
+    try objects.append(Cilinder.init(origin + Vector3{ x_start + x_offset, height, z_first_bob }, normal, bob_height, radius, mat));
+    try objects.append(Cilinder.init(origin + Vector3{ x_start + x_offset, height, z_second_bob }, normal, bob_height, radius, mat));
+    try objects.append(Cilinder.init(origin + Vector3{ x_start + 2 * x_offset, height, z_first_bob }, normal, bob_height, radius, mat));
+    try objects.append(Cilinder.init(origin + Vector3{ x_start + 2 * x_offset, height, z_second_bob }, normal, bob_height, radius, mat));
+    try objects.append(Cilinder.init(origin + Vector3{ x_start + 3 * x_offset, height, z_first_bob }, normal, bob_height, radius, mat));
+    try objects.append(Cilinder.init(origin + Vector3{ x_start + 3 * x_offset, height, z_second_bob }, normal, bob_height, radius, mat));
+    try objects.append(first_cube.*);
+
+    const result = try allocator.create(Hittable);
+    result.* = HittableList.init(objects.items);
+    return result;
 }
 
 fn box(a: Vector3, b: Vector3, mat: Material) !*Hittable {
@@ -403,13 +550,13 @@ const Camera = struct {
     v: Vector3 = undefined,
     w: Vector3 = undefined,
 
-    writer: ImageWriter = undefined,
+    writer: *ImageWriter = undefined,
 
-    pub fn render(self: *Camera, context: Task) std.fs.File.Writer.Error!void {
+    pub fn render(self: *Camera, task: Task) std.fs.File.Writer.Error!void {
         try self.initialize();
 
-        const start_at = context.thread_idx * context.chunk_size;
-        const end_before = start_at + context.chunk_size;
+        const start_at = task.thread_idx * task.chunk_size;
+        const end_before = start_at + task.chunk_size;
 
         for (1..self.samples_per_pixel + 1) |number_of_samples| {
             for (start_at..end_before) |i| {
@@ -417,7 +564,7 @@ const Camera = struct {
                 const y = @divTrunc(i, self.img_width) + 1;
 
                 const ray = self.getRay(x, y);
-                const color = self.rayColor(ray, context.world, self.max_depth);
+                const color = self.rayColor(ray, task.world, self.max_depth);
 
                 try self.writer.writeColor(x - 1, y - 1, color, number_of_samples);
             }
@@ -514,7 +661,7 @@ const Camera = struct {
 };
 
 const ImageWriter = union(enum) {
-    shared_state: SharedStateImageWriter,
+    shared_state: *SharedStateImageWriter,
     sink: SinkImageWriter,
 
     pub fn writeColor(self: ImageWriter, x: u64, y: u64, color: Color, number_of_samples: u64) !void {
@@ -539,18 +686,30 @@ const SinkImageWriter = struct {
     }
 };
 
+const AtomicU64 = std.atomic.Atomic(u64);
+
 const SharedStateImageWriter = struct {
     buffer: [][]ColorAndSamples,
+    samples: AtomicU64,
+    total_samples: u64,
 
-    pub fn init(buffer: [][]ColorAndSamples) ImageWriter {
-        return ImageWriter{ .shared_state = .{
-            .buffer = buffer,
-        } };
+    pub fn init(alloc: std.mem.Allocator, buffer: [][]ColorAndSamples) !*ImageWriter {
+        const result = try alloc.create(ImageWriter);
+        const writer = try alloc.create(SharedStateImageWriter);
+        writer.* = SharedStateImageWriter{ .buffer = buffer, .samples = AtomicU64.init(0), .total_samples = image_width * image_height * 500 };
+        result.* = ImageWriter{ .shared_state = writer };
+        return result;
     }
 
-    pub fn writeColor(self: SharedStateImageWriter, x: u64, y: u64, color: Color, number_of_samples: u64) !void {
+    pub fn writeColor(self: *SharedStateImageWriter, x: u64, y: u64, color: Color, number_of_samples: u64) !void {
+        _ = self.samples.fetchAdd(1, std.atomic.Ordering.Monotonic);
         self.buffer[x][y] += vector.Vector4{ color[0], color[1], color[2], 0 };
         self.buffer[x][y][3] = @floatFromInt(number_of_samples);
+
+        const samples = self.samples.load(std.atomic.Ordering.Monotonic);
+        if (samples % 1_000_000 == 0) {
+            std.debug.print("{d:.0}\n", .{100 * @as(f32, @floatFromInt(samples)) / @as(f32, @floatFromInt(self.total_samples))});
+        }
     }
 };
 

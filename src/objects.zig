@@ -33,7 +33,8 @@ pub const Hittable = union(enum) {
     list: HittableList,
     tree: BvhTree,
     translate: Translate,
-    rotate_y: RotateY,
+    rotate_y: Rotate,
+    cilinder: Cilinder,
 
     pub fn hit(self: Hittable, ray: Ray, ray_t: Interval) ?HitRecord {
         return switch (self) {
@@ -45,6 +46,121 @@ pub const Hittable = union(enum) {
         return switch (self) {
             inline else => |case| case.bounding_box,
         };
+    }
+};
+
+pub const Cilinder = struct {
+    center: Vector3,
+    v: Vector3,
+    radius: f32,
+    height: f32,
+    bounding_box: Aabb,
+    mat: Material,
+
+    pub fn init(center: Vector3, v: Vector3, height: f32, radius: f32, mat: Material) Hittable {
+        const cilinder = Cilinder{
+            .center = center,
+            .v = v,
+            .radius = radius,
+            .height = height,
+            .bounding_box = Aabb.init(center - Vector3{ radius, radius, 0 }, center + Vector3{ radius, radius, height }),
+            .mat = mat,
+        };
+
+        return Hittable{
+            .cilinder = cilinder,
+        };
+    }
+
+    pub fn hit(self: *const Cilinder, ray: Ray, ray_t: Interval) ?HitRecord {
+        // Aliases
+        const ro = ray.origin;
+        const rd = ray.direction;
+        const cb = self.center;
+        const ca = self.v;
+        const cr = self.radius;
+
+        const w = ro - cb;
+        const o = w - vector.splat3(vector.dot(w, ca)) * ca;
+        const d = rd - vector.splat3(vector.dot(rd, ca)) * ca;
+
+        const a = vector.dot(d, d);
+        const b = vector.dot(o, d);
+        const c = vector.dot(o, o) - cr * cr;
+
+        var h = b * b - a * c;
+
+        // no solution to the quadratic equation so no intersections.
+        if (h < 0) return null;
+
+        h = @sqrt(h);
+        const t0 = (-b - h) / a;
+        const t1 = (-b + h) / a;
+        var root = t0;
+
+        // No hit if the hit point parameter t is outside of the ray.
+        if (!ray_t.surrounds(root)) {
+            root = t1;
+            if (!ray_t.surrounds(root)) {
+                root = std.math.inf(f64);
+            }
+        }
+
+        // No hit if the ray interesects with the cylinder on a point outside of its height.
+        var z = vector.dot(ray.at(root) - cb, ca);
+        if (z > self.height or z < 0) {
+            if (root == t1) {
+                root = std.math.inf(f64);
+            }
+
+            root = t1;
+            z = vector.dot(ray.at(root) - cb, ca);
+            if (z > self.height or z < 0) {
+                root = std.math.inf(f64);
+            }
+        }
+
+        // Check if we hit with the bottom cap of the cylinder.
+        var t_1_cap = vector.dot(cb - ro, ca) / vector.dot(rd, ca);
+        const p_1_cap = ro + vector.splat3(t_1_cap) * rd;
+        if (!ray_t.surrounds(t_1_cap) or vector.lengthSquared(p_1_cap - cb) > cr * cr) {
+            t_1_cap = std.math.inf(f64);
+        }
+
+        // Check if we hit with the top cap of the cylinder.
+        const ct = cb + vector.splat3(self.height) * ca;
+        var t_2_cap = vector.dot(ct - ro, ca) / vector.dot(rd, ca);
+        const p_2_cap = ro + vector.splat3(t_2_cap) * rd;
+        if (!ray_t.surrounds(t_2_cap) or vector.lengthSquared(p_2_cap - ct) > cr * cr) {
+            t_2_cap = std.math.inf(f64);
+        }
+
+        var hr = HitRecord{};
+        hr.t = @min(@min(root, t_1_cap), t_2_cap);
+        hr.p = ray.at(hr.t);
+        hr.mat = self.mat;
+
+        // No hit if the minimum t is inf.
+        if (hr.t == std.math.inf(f64)) {
+            return null;
+            // Calculate the face normal based on whether we hit the caps or the cylinder.
+        } else if (hr.t == t_1_cap or hr.t == t_2_cap) {
+            hr.setFaceNormal(ray, ca);
+            const origin = if (hr.t == t_2_cap) cb + vector.splat3(self.height) * ca else cb;
+            const cp = (hr.p - origin) / vector.splat3(cr);
+            hr.u = @fabs(cp[0]);
+            hr.v = @fabs(cp[1]);
+        } else {
+            const outward_normal = (hr.p - (cb + vector.splat3(z) * ca));
+            const outward_normal_n = outward_normal / vector.splat3(cr);
+            var phi = std.math.atan2(f64, outward_normal[1], outward_normal[0]);
+            if (phi < 0) phi += 2 * std.math.pi;
+            hr.setFaceNormal(ray, outward_normal_n);
+            hr.u = phi / (std.math.pi * 2);
+            hr.v = z / self.height;
+        }
+
+        return hr;
     }
 };
 
@@ -290,20 +406,27 @@ pub const Translate = struct {
     }
 };
 
-pub const RotateY = struct {
+pub const Axis = enum {
+    x,
+    y,
+    z,
+};
+
+pub const Rotate = struct {
     object: *const Hittable,
     cos_theta: f64,
     sin_theta: f64,
     bounding_box: Aabb,
+    axis: Axis = Axis.y,
 
-    pub fn init(object: *const Hittable, degrees: f32) Hittable {
+    pub fn init(axis: Axis, object: *const Hittable, degrees: f32) Hittable {
         const theta = math.degreesToRadians(degrees);
         const cos_theta = @cos(theta);
         const sin_theta = @sin(theta);
 
         const bbox = object.bbox();
-        var min = Vector3{ -99999999, -99999999, -99999999 };
-        var max = Vector3{ 99999999, 99999999, 99999999 };
+        var min = Vector3{ -std.math.inf(f64), -std.math.inf(f64), -std.math.inf(f64) };
+        var max = Vector3{ std.math.inf(f64), std.math.inf(f64), std.math.inf(f64) };
 
         for (0..2) |i| {
             for (0..2) |j| {
@@ -313,10 +436,7 @@ pub const RotateY = struct {
                     const y = @as(f64, @floatFromInt(j)) * bbox.y.max + @as(f64, @floatFromInt(1 - j)) * bbox.y.min;
                     const z = @as(f64, @floatFromInt(k)) * bbox.z.max + @as(f64, @floatFromInt(1 - k)) * bbox.z.min;
 
-                    const new_x = cos_theta * x + sin_theta * z;
-                    const new_z = -sin_theta * x + cos_theta * z;
-
-                    const tester = Vector3{ new_x, y, new_z };
+                    const tester = rotate(axis, sin_theta, cos_theta, Vector3{ x, y, z });
 
                     for (0..2) |c| {
                         min[c] = @min(min[c], tester[c]);
@@ -326,18 +446,18 @@ pub const RotateY = struct {
             }
         }
 
-        return Hittable{ .rotate_y = RotateY{ .object = object, .cos_theta = @cos(theta), .sin_theta = @sin(theta), .bounding_box = Aabb.init(min, max) } };
+        return Hittable{ .rotate_y = Rotate{ .object = object, .cos_theta = @cos(theta), .sin_theta = @sin(theta), .bounding_box = Aabb.init(min, max), .axis = axis } };
     }
 
-    pub fn hit(self: RotateY, ray: Ray, ray_t: Interval) ?HitRecord {
+    pub fn hit(self: Rotate, ray: Ray, ray_t: Interval) ?HitRecord {
         // Translate ray into object space.
-        const rotated_ray = Ray.initWithTime(self.rotate(ray.origin), self.rotate(ray.direction), ray.time);
+        const rotated_ray = Ray.initWithTime(rotate(self.axis, self.sin_theta, self.cos_theta, ray.origin), rotate(self.axis, self.sin_theta, self.cos_theta, ray.direction), ray.time);
 
         if (self.object.hit(rotated_ray, ray_t)) |hit_record| {
             // Change the intersection point from object space to world space.
             return HitRecord{
-                .p = self.unRotate(hit_record.p),
-                .normal = self.unRotate(hit_record.normal),
+                .p = unRotate(self.axis, self.sin_theta, self.cos_theta, hit_record.p),
+                .normal = unRotate(self.axis, self.sin_theta, self.cos_theta, hit_record.normal),
                 .t = hit_record.t,
                 .u = hit_record.u,
                 .v = hit_record.v,
@@ -349,19 +469,43 @@ pub const RotateY = struct {
         return null;
     }
 
-    pub fn rotate(self: RotateY, v: Vector3) Vector3 {
-        return Vector3{
-            self.cos_theta * v[0] - self.sin_theta * v[2],
-            v[1],
-            self.sin_theta * v[0] + self.cos_theta * v[2],
+    pub fn rotate(axis: Axis, sin_theta: f64, cos_theta: f64, v: Vector3) Vector3 {
+        return switch (axis) {
+            .x => Vector3{
+                v[0],
+                cos_theta * v[1] - sin_theta * v[2],
+                sin_theta * v[1] + cos_theta * v[2],
+            },
+            .y => Vector3{
+                cos_theta * v[0] - sin_theta * v[2],
+                v[1],
+                sin_theta * v[0] + cos_theta * v[2],
+            },
+            .z => Vector3{
+                cos_theta * v[0] - sin_theta * v[1],
+                sin_theta * v[0] + cos_theta * v[1],
+                v[2],
+            },
         };
     }
 
-    pub fn unRotate(self: RotateY, v: Vector3) Vector3 {
-        return Vector3{
-            self.cos_theta * v[0] + self.sin_theta * v[2],
-            v[1],
-            -self.sin_theta * v[0] + self.cos_theta * v[2],
+    pub fn unRotate(axis: Axis, sin_theta: f64, cos_theta: f64, v: Vector3) Vector3 {
+        return switch (axis) {
+            .x => Vector3{
+                v[0],
+                cos_theta * v[1] + sin_theta * v[2],
+                -sin_theta * v[1] + cos_theta * v[2],
+            },
+            .y => Vector3{
+                cos_theta * v[0] + sin_theta * v[2],
+                v[1],
+                -sin_theta * v[0] + cos_theta * v[2],
+            },
+            .z => Vector3{
+                cos_theta * v[0] + sin_theta * v[1],
+                -sin_theta * v[0] + cos_theta * v[1],
+                v[2],
+            },
         };
     }
 };
